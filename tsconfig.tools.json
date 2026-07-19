@@ -1,0 +1,20 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ES2022", "DOM"],
+		"noEmit": true,
+		"types": ["node", "vite/client"],
+		"isolatedModules": true
+	},
+	"include": [
+		"backend/scripts/**/*.ts",
+		"backend/tests/**/*.ts",
+		"drizzle.config.ts",
+		"vite.config.ts",
+		"vitest.config.ts",
+		"tests/**/*.ts"
+	],
+	"exclude": ["backend/dist", "frontend/dist", "node_modules"]
+}
