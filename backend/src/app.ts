@@ -1,178 +1,205 @@
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import fs from 'node:fs';
-import path from 'node:path';
-import { Readable } from 'node:stream';
+import fs from "node:fs";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
 
-import { appConfig } from './config.js';
-import database from './database.js';
-import { apiError, requireAuthenticatedUser } from './http.js';
-import { authMiddleware, type AppBindings } from './plugins/auth.js';
-import { adminRoutes } from './routes/admin.js';
-import { authRoutes } from './routes/auth.js';
-import { studentRoutes } from './routes/students.js';
-import { teacherRoutes } from './routes/teachers.js';
-import { uploadRoutes } from './routes/upload.js';
+import { appConfig } from "./config.js";
+import database from "./database.js";
+import { apiError, requireAuthenticatedUser } from "./http.js";
+import { type AppBindings, authMiddleware } from "./plugins/auth.js";
+import { adminRoutes } from "./routes/admin.js";
+import { authRoutes } from "./routes/auth.js";
+import { studentRoutes } from "./routes/students.js";
+import { teacherRoutes } from "./routes/teachers.js";
+import { uploadRoutes } from "./routes/upload.js";
 
-const frontendDir = path.resolve(process.cwd(), 'frontend/dist');
-const frontendIndexPath = path.join(frontendDir, 'index.html');
-const uploadDir = path.resolve(process.cwd(), 'backend/data/uploads');
+const frontendDir = path.resolve(process.cwd(), "frontend/dist");
+const frontendIndexPath = path.join(frontendDir, "index.html");
+const uploadDir = path.resolve(process.cwd(), "backend/data/uploads");
 
 fs.mkdirSync(uploadDir, { recursive: true });
 
 const allowedOrigins = appConfig.cors_origins;
 
 const mimeByExtension: Record<string, string> = {
-  '.css': 'text/css; charset=utf-8',
-  '.gif': 'image/gif',
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2'
+	".css": "text/css; charset=utf-8",
+	".gif": "image/gif",
+	".html": "text/html; charset=utf-8",
+	".js": "application/javascript; charset=utf-8",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".json": "application/json; charset=utf-8",
+	".png": "image/png",
+	".webp": "image/webp",
+	".svg": "image/svg+xml; charset=utf-8",
+	".txt": "text/plain; charset=utf-8",
+	".woff": "font/woff",
+	".woff2": "font/woff2",
 };
 
 function resolveSafeFile(baseDir: string, requestPath: string) {
-  const safePath = path.normalize(requestPath).replace(/^[/\\]+/, '').replace(/^(\.\.(\/|\\|$))+/, '');
-  const filePath = path.join(baseDir, safePath);
+	const safePath = path
+		.normalize(requestPath)
+		.replace(/^[/\\]+/, "")
+		.replace(/^(\.\.(\/|\\|$))+/, "");
+	const filePath = path.join(baseDir, safePath);
 
-  if (!filePath.startsWith(baseDir)) {
-    return null;
-  }
+	if (!filePath.startsWith(baseDir)) {
+		return null;
+	}
 
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    return null;
-  }
+	if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+		return null;
+	}
 
-  return filePath;
+	return filePath;
 }
 
 const frontendRoutePatterns = [
-  /^\/$/,
-  /^\/login(?:\/(?:student|staff))?\/?$/,
-  /^\/setup-password\/?$/,
-  /^\/student\/(?:dashboard|tasks(?:\/[^/]+(?:\/upload)?)?|notifications|account)\/?$/,
-  /^\/teacher\/(?:dashboard|tasks(?:\/[^/]+(?:\/records\/[^/]+\/edit)?)?|students|account)\/?$/,
-  /^\/admin\/(?:dashboard|tasks(?:\/[^/]+(?:\/records\/[^/]+\/edit)?)?|users|assign|students|teachers|account)\/?$/
+	/^\/$/,
+	/^\/login(?:\/(?:student|staff))?\/?$/,
+	/^\/setup-password\/?$/,
+	/^\/student\/(?:dashboard|tasks(?:\/[^/]+(?:\/upload)?)?|notifications|account)\/?$/,
+	/^\/teacher\/(?:dashboard|tasks(?:\/[^/]+(?:\/records\/[^/]+\/edit)?)?|students|account)\/?$/,
+	/^\/admin\/(?:dashboard|tasks(?:\/[^/]+(?:\/records\/[^/]+\/edit)?)?|users|assign|students|teachers|account)\/?$/,
 ];
 
 function fileResponse(filePath: string, init?: ResponseInit) {
-  const headers = new Headers(init?.headers);
-  headers.set('content-type', mimeByExtension[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream');
+	const headers = new Headers(init?.headers);
+	headers.set(
+		"content-type",
+		mimeByExtension[path.extname(filePath).toLowerCase()] ??
+			"application/octet-stream",
+	);
 
-  return new Response(Readable.toWeb(fs.createReadStream(filePath)) as ReadableStream, {
-    ...init,
-    headers
-  });
+	return new Response(
+		Readable.toWeb(fs.createReadStream(filePath)) as ReadableStream,
+		{
+			...init,
+			headers,
+		},
+	);
 }
 
 function resolveFrontendIndex() {
-  return fs.existsSync(frontendIndexPath) ? frontendIndexPath : null;
+	return fs.existsSync(frontendIndexPath) ? frontendIndexPath : null;
 }
 
 function isKnownFrontendRoute(requestPath: string) {
-  return frontendRoutePatterns.some((pattern) => pattern.test(requestPath));
+	return frontendRoutePatterns.some((pattern) => pattern.test(requestPath));
 }
 
 export const api = new Hono<AppBindings>()
-  .use('*', cors({
-    origin: (origin) => {
-      if (!origin || origin === 'null' || allowedOrigins.length === 0) {
-        return origin ?? '*';
-      }
+	.use(
+		"*",
+		cors({
+			origin: (origin) => {
+				if (!origin || origin === "null" || allowedOrigins.length === 0) {
+					return origin ?? "*";
+				}
 
-      return allowedOrigins.includes(origin) ? origin : null;
-    },
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
-  }))
-  .get('/config', (c) => c.json({
-    site_name: appConfig.site_name,
-    icp_beian: appConfig.icp_beian,
-    upload_image_max_size_bytes: appConfig.upload_image_max_size_bytes,
-    record_title_max_length: appConfig.record_title_max_length,
-    task_title_max_length: appConfig.task_title_max_length,
-    content_max_length: appConfig.content_max_length,
-    comment_max_length: appConfig.comment_max_length,
-    location_max_length: appConfig.location_max_length,
-    is_production: appConfig.is_production,
-    server_timestamp: Date.now()
-  }))
-  .route('/auth', authRoutes)
-  .route('/admin', adminRoutes)
-  .route('/', studentRoutes)
-  .route('/', teacherRoutes)
-  .route('/', uploadRoutes)
-  .notFound((c) => apiError(c, 404, '资源不存在。'))
-  .onError((error, c) => {
-    console.log(error);
-    return apiError(c, 500, '服务器内部错误。');
-  });
+				return allowedOrigins.includes(origin) ? origin : null;
+			},
+			allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+		}),
+	)
+	.get("/config", (c) =>
+		c.json({
+			site_name: appConfig.site_name,
+			icp_beian: appConfig.icp_beian,
+			upload_image_max_size_bytes: appConfig.upload_image_max_size_bytes,
+			record_title_max_length: appConfig.record_title_max_length,
+			task_title_max_length: appConfig.task_title_max_length,
+			content_max_length: appConfig.content_max_length,
+			comment_max_length: appConfig.comment_max_length,
+			location_max_length: appConfig.location_max_length,
+			is_production: appConfig.is_production,
+			server_timestamp: Date.now(),
+		}),
+	)
+	.route("/auth", authRoutes)
+	.route("/admin", adminRoutes)
+	.route("/", studentRoutes)
+	.route("/", teacherRoutes)
+	.route("/", uploadRoutes)
+	.notFound((c) => apiError(c, 404, "资源不存在。"))
+	.onError((error, c) => {
+		console.log(error);
+		return apiError(c, 500, "服务器内部错误。");
+	});
 
 export type Api = typeof api;
 
 export const app = new Hono<AppBindings>()
-  .route('/api', api)
-  .use('/uploads/*', authMiddleware)
-  .get('/health', (c) => c.json({ ok: true }))
-  .get('/uploads/*', (c) => {
-    const authFailure = requireAuthenticatedUser(c);
+	.route("/api", api)
+	.use("/uploads/*", authMiddleware)
+	.get("/health", (c) => c.json({ ok: true }))
+	.get("/uploads/*", (c) => {
+		const authFailure = requireAuthenticatedUser(c);
 
-    if (authFailure) {
-      return authFailure;
-    }
+		if (authFailure) {
+			return authFailure;
+		}
 
-    const user = c.get('user')!;
-    const imagePath = c.req.path;
+		const user = c.get("user")!;
+		const imagePath = c.req.path;
 
-    if (!database.canAccessUpload(imagePath, user.id, user.role)) {
-      return apiError(c, 404, '资源不存在。');
-    }
+		if (!database.canAccessUpload(imagePath, user.id, user.role)) {
+			return apiError(c, 404, "资源不存在。");
+		}
 
-    const filePath = resolveSafeFile(uploadDir, c.req.path.replace(/^\/uploads\//, ''));
+		const filePath = resolveSafeFile(
+			uploadDir,
+			c.req.path.replace(/^\/uploads\//, ""),
+		);
 
-    if (!filePath) {
-      return apiError(c, 404, '资源不存在。');
-    }
+		if (!filePath) {
+			return apiError(c, 404, "资源不存在。");
+		}
 
-    return fileResponse(filePath);
-  })
-  .get('/assets/*', (c) => {
-    const filePath = resolveSafeFile(frontendDir, c.req.path.replace(/^\//, ''));
+		return fileResponse(filePath);
+	})
+	.get("/assets/*", (c) => {
+		const filePath = resolveSafeFile(
+			frontendDir,
+			c.req.path.replace(/^\//, ""),
+		);
 
-    if (!filePath) {
-      return new Response('资源不存在。', { status: 404 });
-    }
+		if (!filePath) {
+			return new Response("资源不存在。", { status: 404 });
+		}
 
-    return fileResponse(filePath);
-  })
-  .get('/', () => {
-    const filePath = resolveFrontendIndex();
-    return filePath ? fileResponse(filePath) : new Response('前端尚未构建，请先运行 pnpm build:frontend。');
-  })
-  .all('*', (c) => {
-    if (c.req.path.startsWith('/api') || c.req.path.startsWith('/uploads')) {
-      return apiError(c, 404, '资源不存在。');
-    }
+		return fileResponse(filePath);
+	})
+	.get("/", () => {
+		const filePath = resolveFrontendIndex();
+		return filePath
+			? fileResponse(filePath)
+			: new Response("前端尚未构建，请先运行 pnpm build:frontend。");
+	})
+	.all("*", (c) => {
+		if (c.req.path.startsWith("/api") || c.req.path.startsWith("/uploads")) {
+			return apiError(c, 404, "资源不存在。");
+		}
 
-    const assetPath = resolveSafeFile(frontendDir, c.req.path.slice(1));
+		const assetPath = resolveSafeFile(frontendDir, c.req.path.slice(1));
 
-    if (assetPath) {
-      return fileResponse(assetPath);
-    }
+		if (assetPath) {
+			return fileResponse(assetPath);
+		}
 
-    const indexPath = resolveFrontendIndex();
+		const indexPath = resolveFrontendIndex();
 
-    if (!indexPath) {
-      return new Response('前端尚未构建，请先运行 pnpm build:frontend。', { status: 404 });
-    }
+		if (!indexPath) {
+			return new Response("前端尚未构建，请先运行 pnpm build:frontend。", {
+				status: 404,
+			});
+		}
 
-    return fileResponse(indexPath, { status: isKnownFrontendRoute(c.req.path) ? 200 : 404 });
-  });
+		return fileResponse(indexPath, {
+			status: isKnownFrontendRoute(c.req.path) ? 200 : 404,
+		});
+	});
 
 export type App = typeof app;

@@ -1,199 +1,228 @@
-import { createMiddleware } from 'hono/factory';
-import { setCookie, getCookie } from 'hono/cookie';
-import { SignJWT, jwtVerify } from 'jose';
+import { getCookie, setCookie } from "hono/cookie";
+import { createMiddleware } from "hono/factory";
+import { jwtVerify, SignJWT } from "jose";
 
-import { jwtIssuer, jwtSecret, tokenLifetimeSeconds } from '../auth/config.js';
-import { isLowCostPasswordHash } from '../auth/password.js';
-import database from '../database.js';
-import type { AuthTokenPayload, PublicUser, UserRole } from '../models.js';
-import { appConfig } from '../config.js';
+import { jwtIssuer, jwtSecret, tokenLifetimeSeconds } from "../auth/config.js";
+import { isLowCostPasswordHash } from "../auth/password.js";
+import { appConfig } from "../config.js";
+import database from "../database.js";
+import type { AuthTokenPayload, PublicUser, UserRole } from "../models.js";
 
 export interface AppBindings {
-  Variables: {
-    authError: string | null;
-    user: PublicUser | null;
-  };
+	Variables: {
+		authError: string | null;
+		user: PublicUser | null;
+	};
 }
 
 const jwtKey = new TextEncoder().encode(jwtSecret);
-type TokenAudience = UserRole | 'unauthorized';
+type TokenAudience = UserRole | "unauthorized";
 
-const tokenAudiences: TokenAudience[] = ['admin', 'teacher', 'student', 'unauthorized'];
-const cookieName = 'auth_token';
+const tokenAudiences: TokenAudience[] = [
+	"admin",
+	"teacher",
+	"student",
+	"unauthorized",
+];
+const cookieName = "auth_token";
 const isProduction = appConfig.is_production;
 
 function getTokenAudience(user: PublicUser): TokenAudience {
-  return user.password_setup_required ? 'unauthorized' : user.role;
+	return user.password_setup_required ? "unauthorized" : user.role;
 }
 
-function tokenAudienceMatchesUser(audience: string | string[] | undefined, user: PublicUser) {
-  const expectedAudience = getTokenAudience(user);
-  return audience === expectedAudience || (Array.isArray(audience) && audience.length === 1 && audience[0] === expectedAudience);
+function tokenAudienceMatchesUser(
+	audience: string | string[] | undefined,
+	user: PublicUser,
+) {
+	const expectedAudience = getTokenAudience(user);
+	return (
+		audience === expectedAudience ||
+		(Array.isArray(audience) &&
+			audience.length === 1 &&
+			audience[0] === expectedAudience)
+	);
 }
 
 function isPasswordSetupAllowedRequest(path: string, method: string) {
-  if (method === 'OPTIONS') {
-    return true;
-  }
+	if (method === "OPTIONS") {
+		return true;
+	}
 
-  if (path === '/api/auth/me') {
-    return true;
-  }
+	if (path === "/api/auth/me") {
+		return true;
+	}
 
-  if (path === '/api/auth/pqseal-challenge') {
-    return true;
-  }
+	if (path === "/api/auth/pqseal-challenge") {
+		return true;
+	}
 
-  return path === '/api/auth/password' && method === 'PUT';
+	return path === "/api/auth/password" && method === "PUT";
 }
 
 function isPublicAuthRequest(path: string, method: string) {
-  if (method === 'OPTIONS') {
-    return true;
-  }
+	if (method === "OPTIONS") {
+		return true;
+	}
 
-  if (path === '/api/auth/pqseal-challenge' && method === 'GET') {
-    return true;
-  }
+	if (path === "/api/auth/pqseal-challenge" && method === "GET") {
+		return true;
+	}
 
-  if (path === '/api/auth/classes/search' && method === 'GET') {
-    return true;
-  }
+	if (path === "/api/auth/classes/search" && method === "GET") {
+		return true;
+	}
 
-  if (path === '/api/auth/logout' && method === 'POST') {
-    return true;
-  }
+	if (path === "/api/auth/logout" && method === "POST") {
+		return true;
+	}
 
-  return path === '/api/auth/login' && method === 'POST'
-    || path === '/api/auth/login/student-uid' && method === 'POST'
-    || path === '/api/auth/login/student-name' && method === 'POST'
-    || path === '/api/auth/login/staff' && method === 'POST'
-    || path === '/api/auth/login/select' && method === 'POST';
+	return (
+		(path === "/api/auth/login" && method === "POST") ||
+		(path === "/api/auth/login/student-uid" && method === "POST") ||
+		(path === "/api/auth/login/student-name" && method === "POST") ||
+		(path === "/api/auth/login/staff" && method === "POST") ||
+		(path === "/api/auth/login/select" && method === "POST")
+	);
 }
 
 function readBearerToken(authorization?: string | null) {
-  if (!authorization) {
-    return {
-      token: null,
-      error: '缺少认证令牌。'
-    } as const;
-  }
+	if (!authorization) {
+		return {
+			token: null,
+			error: "缺少认证令牌。",
+		} as const;
+	}
 
-  if (!authorization.startsWith('Bearer ')) {
-    return {
-      token: null,
-      error: '认证令牌无效。'
-    } as const;
-  }
+	if (!authorization.startsWith("Bearer ")) {
+		return {
+			token: null,
+			error: "认证令牌无效。",
+		} as const;
+	}
 
-  return {
-    token: authorization.slice('Bearer '.length),
-    error: null
-  } as const;
+	return {
+		token: authorization.slice("Bearer ".length),
+		error: null,
+	} as const;
 }
 
 export async function signAccessToken(user: PublicUser) {
-  return await new SignJWT({ ...user })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setIssuer(jwtIssuer)
-    .setAudience(getTokenAudience(user))
-    .setExpirationTime(`${tokenLifetimeSeconds}s`)
-    .sign(jwtKey);
+	return await new SignJWT({ ...user })
+		.setProtectedHeader({ alg: "HS256" })
+		.setIssuedAt()
+		.setIssuer(jwtIssuer)
+		.setAudience(getTokenAudience(user))
+		.setExpirationTime(`${tokenLifetimeSeconds}s`)
+		.sign(jwtKey);
 }
 
-export function setAuthCookie(c: Parameters<typeof setCookie>[0], token: string) {
-  setCookie(c, cookieName, token, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: tokenLifetimeSeconds
-  });
+export function setAuthCookie(
+	c: Parameters<typeof setCookie>[0],
+	token: string,
+) {
+	setCookie(c, cookieName, token, {
+		httpOnly: true,
+		secure: isProduction,
+		sameSite: "Lax",
+		path: "/",
+		maxAge: tokenLifetimeSeconds,
+	});
 }
 
 export function clearAuthCookie(c: Parameters<typeof setCookie>[0]) {
-  setCookie(c, cookieName, '', {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: 0
-  });
+	setCookie(c, cookieName, "", {
+		httpOnly: true,
+		secure: isProduction,
+		sameSite: "Lax",
+		path: "/",
+		maxAge: 0,
+	});
 }
 
 export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
-  const headerResult = readBearerToken(c.req.header('authorization'));
-  const cookieTokenValue = getCookie(c, cookieName);
-  const token = headerResult.token ?? cookieTokenValue ?? null;
-  const error = token ? null : (headerResult.error ?? '缺少认证令牌。');
+	const headerResult = readBearerToken(c.req.header("authorization"));
+	const cookieTokenValue = getCookie(c, cookieName);
+	const token = headerResult.token ?? cookieTokenValue ?? null;
+	const error = token ? null : (headerResult.error ?? "缺少认证令牌。");
 
-  if (!token) {
-    c.set('authError', error);
-    c.set('user', null);
-    await next();
-    return;
-  }
+	if (!token) {
+		c.set("authError", error);
+		c.set("user", null);
+		await next();
+		return;
+	}
 
-  try {
-    const verified = await jwtVerify<AuthTokenPayload>(token, jwtKey, {
-      issuer: jwtIssuer,
-      audience: tokenAudiences
-    });
-    const currentUser = database.findUserById(verified.payload.id);
+	try {
+		const verified = await jwtVerify<AuthTokenPayload>(token, jwtKey, {
+			issuer: jwtIssuer,
+			audience: tokenAudiences,
+		});
+		const currentUser = database.findUserById(verified.payload.id);
 
-    if (!currentUser || currentUser.uid !== verified.payload.uid || currentUser.role !== verified.payload.role) {
-      c.set('authError', '认证用户不存在或已失效。');
-      c.set('user', null);
-      await next();
-      return;
-    }
+		if (
+			!currentUser ||
+			currentUser.uid !== verified.payload.uid ||
+			currentUser.role !== verified.payload.role
+		) {
+			c.set("authError", "认证用户不存在或已失效。");
+			c.set("user", null);
+			await next();
+			return;
+		}
 
-    const passwordSetupRequired = isLowCostPasswordHash(currentUser.password);
-    const authUser = {
-      id: currentUser.id,
-      uid: currentUser.uid,
-      role: currentUser.role,
-      name: currentUser.name,
-      english_name: currentUser.english_name,
-      password_setup_required: passwordSetupRequired
-    };
+		const passwordSetupRequired = isLowCostPasswordHash(currentUser.password);
+		const authUser = {
+			id: currentUser.id,
+			uid: currentUser.uid,
+			role: currentUser.role,
+			name: currentUser.name,
+			english_name: currentUser.english_name,
+			password_setup_required: passwordSetupRequired,
+		};
 
-    c.set('authError', null);
-    c.set('user', authUser);
+		c.set("authError", null);
+		c.set("user", authUser);
 
-    if (!tokenAudienceMatchesUser(verified.payload.aud, authUser)) {
-      if (isPublicAuthRequest(c.req.path, c.req.method)) {
-        c.set('authError', null);
-        c.set('user', null);
-        await next();
-        return;
-      }
+		if (!tokenAudienceMatchesUser(verified.payload.aud, authUser)) {
+			if (isPublicAuthRequest(c.req.path, c.req.method)) {
+				c.set("authError", null);
+				c.set("user", null);
+				await next();
+				return;
+			}
 
-      if (passwordSetupRequired && verified.payload.aud === 'unauthorized' && isPasswordSetupAllowedRequest(c.req.path, c.req.method)) {
-        await next();
-        return;
-      }
+			if (
+				passwordSetupRequired &&
+				verified.payload.aud === "unauthorized" &&
+				isPasswordSetupAllowedRequest(c.req.path, c.req.method)
+			) {
+				await next();
+				return;
+			}
 
-      c.set('authError', '认证令牌权限范围无效。');
-      c.set('user', null);
-      return c.json({ error: '认证令牌权限范围无效。' }, 403);
-    }
+			c.set("authError", "认证令牌权限范围无效。");
+			c.set("user", null);
+			return c.json({ error: "认证令牌权限范围无效。" }, 403);
+		}
 
-    if (passwordSetupRequired && !isPasswordSetupAllowedRequest(c.req.path, c.req.method)) {
-      if (isPublicAuthRequest(c.req.path, c.req.method)) {
-        c.set('authError', null);
-        c.set('user', null);
-        await next();
-        return;
-      }
+		if (
+			passwordSetupRequired &&
+			!isPasswordSetupAllowedRequest(c.req.path, c.req.method)
+		) {
+			if (isPublicAuthRequest(c.req.path, c.req.method)) {
+				c.set("authError", null);
+				c.set("user", null);
+				await next();
+				return;
+			}
 
-      return c.json({ error: '请设置密码。' }, 403);
-    }
-  } catch {
-    c.set('authError', '认证令牌无效或已过期。');
-    c.set('user', null);
-  }
+			return c.json({ error: "请设置密码。" }, 403);
+		}
+	} catch {
+		c.set("authError", "认证令牌无效或已过期。");
+		c.set("user", null);
+	}
 
-  await next();
+	await next();
 });

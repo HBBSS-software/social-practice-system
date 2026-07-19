@@ -1,0 +1,55 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"style": {
+				"noNonNullAssertion": "off"
+			}
+		}
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"overrides": [
+		{
+			"includes": [
+				"frontend/src/app.tsx",
+				"frontend/src/components/data-table.tsx",
+				"frontend/src/components/ui/combobox.tsx",
+				"frontend/src/features/admin/assignments-page.tsx",
+				"frontend/src/features/admin/students-page.tsx",
+				"frontend/src/features/admin/teachers-page.tsx",
+				"frontend/src/features/student/dashboard-page.tsx",
+				"frontend/src/features/student/task-page.tsx",
+				"frontend/src/features/student/tasks-page.tsx",
+				"frontend/src/features/teacher/dashboard-page.tsx",
+				"frontend/src/features/teacher/students-page.tsx",
+				"frontend/src/features/teacher/task-page.tsx",
+				"frontend/src/features/teacher/tasks-page.tsx",
+				"frontend/src/shared/user-credentials-result.tsx"
+			],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"useExhaustiveDependencies": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["frontend/src/components/ui/input-group.tsx"],
+			"linter": {
+				"rules": {
+					"a11y": {
+						"useKeyWithClickEvents": "off",
+						"useSemanticElements": "off"
+					}
+				}
+			}
+		}
+	]
+}

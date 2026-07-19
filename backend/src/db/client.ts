@@ -1,23 +1,25 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
-import { drizzle } from 'drizzle-orm/node-sqlite';
+import { drizzle } from "drizzle-orm/node-sqlite";
 
-import * as schema from './schema.js';
+import * as schema from "./schema.js";
 
 declare global {
-  var __praxisDatabaseFile: string | undefined;
+	var __praxisDatabaseFile: string | undefined;
 }
 
-const defaultDatabaseFile = 'backend/data/app.db';
-const databaseFile = path.resolve(globalThis.__praxisDatabaseFile ?? defaultDatabaseFile);
+const defaultDatabaseFile = "backend/data/app.db";
+const databaseFile = path.resolve(
+	globalThis.__praxisDatabaseFile ?? defaultDatabaseFile,
+);
 
 fs.mkdirSync(path.dirname(databaseFile), { recursive: true });
 
 export const sqlite = new DatabaseSync(databaseFile);
-sqlite.exec('PRAGMA journal_mode = WAL');
-sqlite.exec('PRAGMA foreign_keys = ON');
+sqlite.exec("PRAGMA journal_mode = WAL");
+sqlite.exec("PRAGMA foreign_keys = ON");
 
 export const db = drizzle({ client: sqlite, schema });
 export { databaseFile };

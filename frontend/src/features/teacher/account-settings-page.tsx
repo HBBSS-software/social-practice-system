@@ -1,5 +1,9 @@
-import { AccountCard } from '@/features/student/account-card';
+import { AccountCard } from "@/features/student/account-card";
 
-export function AccountSettingsPage({ allowNameChange }: { allowNameChange: boolean }) {
-  return <AccountCard allowNameChange={allowNameChange} />;
+export function AccountSettingsPage({
+	allowNameChange,
+}: {
+	allowNameChange: boolean;
+}) {
+	return <AccountCard allowNameChange={allowNameChange} />;
 }

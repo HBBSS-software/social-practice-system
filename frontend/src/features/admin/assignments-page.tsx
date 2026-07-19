@@ -1,739 +1,955 @@
-import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, FileUp, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
-
-import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
-import { DataTable } from '@/components/data-table';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
+import { ChevronDown, ChevronUp, Pencil, Plus, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxCollection,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxGroup,
-  ComboboxItem,
-  ComboboxLabel,
-  ComboboxList,
-  ComboboxSeparator,
-  useComboboxPagedSearch
-} from '@/components/ui/combobox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Spinner } from '@/components/ui/spinner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useSession } from '@/lib/auth';
-import { ApiResponseError, createApiClient, importUserCsv, unwrapResponse } from '@/lib/api';
-import { toastError, toastSuccess } from '@/lib/feedback';
-import { formatDateTime, formatDuration } from '@/lib/format';
-import { useShiftMultiSelect } from '@/lib/shift-selection';
-import type { ClassAssignments, ClassSummary, CreatedUser, CreatedUserPayload, CreatedUsersPayload, CsvImportEntry, CsvImportPreview, StudentSummary, StudentWithClassSummary, TeacherStatistics, UserRole, UserSummary } from '@/lib/types';
-import { EmptyState } from '@/shared/empty-state';
-import { includesSearch, ListSearchBar, type ListSearchState } from '@/shared/list-search-bar';
-import { UserCredentialsResult } from '@/shared/user-credentials-result';
-import { AdminPageFrame, comboboxPageSize, Field } from './shared';
+	Combobox,
+	ComboboxChip,
+	ComboboxChips,
+	ComboboxChipsInput,
+	ComboboxCollection,
+	ComboboxContent,
+	ComboboxEmpty,
+	ComboboxGroup,
+	ComboboxItem,
+	ComboboxLabel,
+	ComboboxList,
+	ComboboxSeparator,
+	useComboboxPagedSearch,
+} from "@/components/ui/combobox";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { ApiResponseError, createApiClient, unwrapResponse } from "@/lib/api";
+import { useSession } from "@/lib/auth";
+import { toastError, toastSuccess } from "@/lib/feedback";
+import type {
+	ClassAssignments,
+	ClassSummary,
+	StudentWithClassSummary,
+	UserSummary,
+} from "@/lib/types";
+import { EmptyState } from "@/shared/empty-state";
+import {
+	includesSearch,
+	ListSearchBar,
+	type ListSearchState,
+} from "@/shared/list-search-bar";
+import { AdminPageFrame, comboboxPageSize, Field } from "./shared";
 
-type ClassSearchField = 'name';
-const classSearchOptions = [
-  { label: '名称', value: 'name' }
-] satisfies Array<{ label: string; value: ClassSearchField }>;
-const defaultClassSearch: ListSearchState<ClassSearchField> = { field: 'name', query: '' };
+type ClassSearchField = "name";
+const classSearchOptions = [{ label: "名称", value: "name" }] satisfies Array<{
+	label: string;
+	value: ClassSearchField;
+}>;
+const defaultClassSearch: ListSearchState<ClassSearchField> = {
+	field: "name",
+	query: "",
+};
 
 function matchUserSummary(user: UserSummary, query: string) {
-  const normalizedQuery = query.trim().toLowerCase();
+	const normalizedQuery = query.trim().toLowerCase();
 
-  if (!normalizedQuery) {
-    return true;
-  }
+	if (!normalizedQuery) {
+		return true;
+	}
 
-  return user.name.toLowerCase().includes(normalizedQuery) || String(user.uid).includes(normalizedQuery);
+	return (
+		user.name.toLowerCase().includes(normalizedQuery) ||
+		String(user.uid).includes(normalizedQuery)
+	);
 }
 
 export function AdminAssignmentsPage() {
-  const { signOut } = useSession();
-  const [classes, setClasses] = useState<ClassSummary[]>([]);
-  const [teachers, setTeachers] = useState<UserSummary[]>([]);
-  const [students, setStudents] = useState<StudentWithClassSummary[]>([]);
-  const [assignments, setAssignments] = useState<ClassAssignments>({ teachers: [], students: [] });
-  const [visibleCount, setVisibleCount] = useState(comboboxPageSize);
-  const [searchDraft, setSearchDraft] = useState<ListSearchState<ClassSearchField>>(defaultClassSearch);
-  const [search, setSearch] = useState<ListSearchState<ClassSearchField>>(defaultClassSearch);
-  const [creating, setCreating] = useState(false);
-  const [editingClassId, setEditingClassId] = useState<number | null>(null);
+	const { signOut } = useSession();
+	const [classes, setClasses] = useState<ClassSummary[]>([]);
+	const [teachers, setTeachers] = useState<UserSummary[]>([]);
+	const [students, setStudents] = useState<StudentWithClassSummary[]>([]);
+	const [assignments, setAssignments] = useState<ClassAssignments>({
+		teachers: [],
+		students: [],
+	});
+	const [visibleCount, setVisibleCount] = useState(comboboxPageSize);
+	const [searchDraft, setSearchDraft] =
+		useState<ListSearchState<ClassSearchField>>(defaultClassSearch);
+	const [search, setSearch] =
+		useState<ListSearchState<ClassSearchField>>(defaultClassSearch);
+	const [creating, setCreating] = useState(false);
+	const [editingClassId, setEditingClassId] = useState<number | null>(null);
 
-  async function loadData() {
-    try {
-      const api = createApiClient();
-      const [assignmentData, studentData] = await Promise.all([
-        unwrapResponse<{ classes: ClassSummary[]; assignments: ClassAssignments; teachers: UserSummary[] }>(api.admin.classes.get()),
-        unwrapResponse<{ students: StudentWithClassSummary[] }>(api.admin.classes.students.get({ query: { scope: 'all' } }))
-      ]);
-      setClasses(assignmentData.classes);
-      setAssignments(assignmentData.assignments);
-      setTeachers(assignmentData.teachers);
-      setStudents(studentData.students);
-    } catch (error) {
-      if (error instanceof ApiResponseError && error.status === 401) {
-        signOut();
-        return;
-      }
+	async function loadData() {
+		try {
+			const api = createApiClient();
+			const [assignmentData, studentData] = await Promise.all([
+				unwrapResponse<{
+					classes: ClassSummary[];
+					assignments: ClassAssignments;
+					teachers: UserSummary[];
+				}>(api.admin.classes.get()),
+				unwrapResponse<{ students: StudentWithClassSummary[] }>(
+					api.admin.classes.students.get({ query: { scope: "all" } }),
+				),
+			]);
+			setClasses(assignmentData.classes);
+			setAssignments(assignmentData.assignments);
+			setTeachers(assignmentData.teachers);
+			setStudents(studentData.students);
+		} catch (error) {
+			if (error instanceof ApiResponseError && error.status === 401) {
+				signOut();
+				return;
+			}
 
-      toastError(error, '加载分配关系失败。');
-    }
-  }
+			toastError(error, "加载分配关系失败。");
+		}
+	}
 
-  useEffect(() => {
-    void loadData();
-  }, []);
+	useEffect(() => {
+		void loadData();
+	}, []);
 
-  const teacherMap = useMemo(() => new Map(teachers.map((teacher) => [teacher.id, teacher])), [teachers]);
-  const classTeacherMap = useMemo(() => {
-    const next = new Map<number, number[]>();
+	const teacherMap = useMemo(
+		() => new Map(teachers.map((teacher) => [teacher.id, teacher])),
+		[teachers],
+	);
+	const classTeacherMap = useMemo(() => {
+		const next = new Map<number, number[]>();
 
-    for (const assignment of assignments.teachers) {
-      next.set(assignment.class_id, [...(next.get(assignment.class_id) ?? []), assignment.teacher_id]);
-    }
+		for (const assignment of assignments.teachers) {
+			next.set(assignment.class_id, [
+				...(next.get(assignment.class_id) ?? []),
+				assignment.teacher_id,
+			]);
+		}
 
-    return next;
-  }, [assignments.teachers]);
-  const classStudentMap = useMemo(() => {
-    const next = new Map<number, StudentWithClassSummary[]>();
+		return next;
+	}, [assignments.teachers]);
+	const classStudentMap = useMemo(() => {
+		const next = new Map<number, StudentWithClassSummary[]>();
 
-    for (const student of students) {
-      if (!student.class_id) continue;
-      next.set(student.class_id, [...(next.get(student.class_id) ?? []), student]);
-    }
+		for (const student of students) {
+			if (!student.class_id) continue;
+			next.set(student.class_id, [
+				...(next.get(student.class_id) ?? []),
+				student,
+			]);
+		}
 
-    return next;
-  }, [students]);
-  const searchedClasses = useMemo(() => {
-    const query = search.query.trim();
-    if (!query) return classes;
+		return next;
+	}, [students]);
+	const searchedClasses = useMemo(() => {
+		const query = search.query.trim();
+		if (!query) return classes;
 
-    return classes.filter((item) => includesSearch(item.name, query));
-  }, [classes, search]);
-  const visibleClasses = useMemo(() => searchedClasses.slice(0, visibleCount), [searchedClasses, visibleCount]);
+		return classes.filter((item) => includesSearch(item.name, query));
+	}, [classes, search]);
+	const visibleClasses = useMemo(
+		() => searchedClasses.slice(0, visibleCount),
+		[searchedClasses, visibleCount],
+	);
 
-  function loadMoreClasses(event: React.UIEvent<HTMLDivElement>) {
-    const element = event.currentTarget;
+	function loadMoreClasses(event: React.UIEvent<HTMLDivElement>) {
+		const element = event.currentTarget;
 
-    if (element.scrollTop + element.clientHeight < element.scrollHeight - 48) {
-      return;
-    }
+		if (element.scrollTop + element.clientHeight < element.scrollHeight - 48) {
+			return;
+		}
 
-    setVisibleCount((current) => Math.min(current + comboboxPageSize, searchedClasses.length));
-  }
+		setVisibleCount((current) =>
+			Math.min(current + comboboxPageSize, searchedClasses.length),
+		);
+	}
 
-  return (
-    <AdminPageFrame title="班级管理">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ListSearchBar
-          value={searchDraft}
-          options={classSearchOptions}
-          placeholder="搜索班级名称"
-          showFieldSelect={false}
-          onChange={setSearchDraft}
-          onSearch={() => {
-            setSearch({ field: searchDraft.field, query: searchDraft.query.trim() });
-            setVisibleCount(comboboxPageSize);
-          }}
-        />
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="size-4" />
-          添加班级
-        </Button>
-      </div>
+	return (
+		<AdminPageFrame title="班级管理">
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<ListSearchBar
+					value={searchDraft}
+					options={classSearchOptions}
+					placeholder="搜索班级名称"
+					showFieldSelect={false}
+					onChange={setSearchDraft}
+					onSearch={() => {
+						setSearch({
+							field: searchDraft.field,
+							query: searchDraft.query.trim(),
+						});
+						setVisibleCount(comboboxPageSize);
+					}}
+				/>
+				<Button onClick={() => setCreating(true)}>
+					<Plus className="size-4" />
+					添加班级
+				</Button>
+			</div>
 
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent className="sm:max-w-4xl">
-          <ClassEditorCard
-            mode="create"
-            teachers={teachers}
-            signOut={signOut}
-            onCancel={() => setCreating(false)}
-            onSave={async (name, teacherIds, studentIds) => {
-              const data = await unwrapResponse<{ class: ClassSummary }>(createApiClient().admin.classes.post({ name }));
-              if (teacherIds.length > 0) {
-                await unwrapResponse(createApiClient().admin.classes.assignTeachers({ class_id: data.class.id, teacher_ids: teacherIds }));
-              }
-              if (studentIds.length > 0) {
-                await unwrapResponse(createApiClient().admin.classes.assignStudents({ class_id: data.class.id, student_ids: studentIds }));
-              }
-              setCreating(false);
-              toastSuccess('班级已创建。');
-              await loadData();
-            }}
-          />
-        </DialogContent>
-      </Dialog>
+			<Dialog open={creating} onOpenChange={setCreating}>
+				<DialogContent className="sm:max-w-4xl">
+					<ClassEditorCard
+						mode="create"
+						teachers={teachers}
+						signOut={signOut}
+						onCancel={() => setCreating(false)}
+						onSave={async (name, teacherIds, studentIds) => {
+							const data = await unwrapResponse<{ class: ClassSummary }>(
+								createApiClient().admin.classes.post({ name }),
+							);
+							if (teacherIds.length > 0) {
+								await unwrapResponse(
+									createApiClient().admin.classes.assignTeachers({
+										class_id: data.class.id,
+										teacher_ids: teacherIds,
+									}),
+								);
+							}
+							if (studentIds.length > 0) {
+								await unwrapResponse(
+									createApiClient().admin.classes.assignStudents({
+										class_id: data.class.id,
+										student_ids: studentIds,
+									}),
+								);
+							}
+							setCreating(false);
+							toastSuccess("班级已创建。");
+							await loadData();
+						}}
+					/>
+				</DialogContent>
+			</Dialog>
 
-      <div className="-mx-1 max-h-[calc(100vh-220px)] space-y-4 overflow-y-auto px-1 py-1" onScroll={loadMoreClasses}>
-        {visibleClasses.length === 0 && !creating ? (
-          <EmptyState title={classes.length === 0 ? '暂无班级' : '没有匹配的班级'} description={classes.length === 0 ? '点击添加班级创建第一个班级。' : '调整搜索条件后再试。'} />
-        ) : null}
+			<div
+				className="-mx-1 max-h-[calc(100vh-220px)] space-y-4 overflow-y-auto px-1 py-1"
+				onScroll={loadMoreClasses}
+			>
+				{visibleClasses.length === 0 && !creating ? (
+					<EmptyState
+						title={classes.length === 0 ? "暂无班级" : "没有匹配的班级"}
+						description={
+							classes.length === 0
+								? "点击添加班级创建第一个班级。"
+								: "调整搜索条件后再试。"
+						}
+					/>
+				) : null}
 
-        {visibleClasses.map((item) => {
-          const teacherIds = classTeacherMap.get(item.id) ?? [];
-          const classTeachers = teacherIds.map((id) => teacherMap.get(id)).filter((teacher): teacher is UserSummary => Boolean(teacher));
-          const classStudents = classStudentMap.get(item.id) ?? [];
+				{visibleClasses.map((item) => {
+					const teacherIds = classTeacherMap.get(item.id) ?? [];
+					const classTeachers = teacherIds
+						.map((id) => teacherMap.get(id))
+						.filter((teacher): teacher is UserSummary => Boolean(teacher));
+					const classStudents = classStudentMap.get(item.id) ?? [];
 
-          return (
-            <Fragment key={item.id}>
-              <ClassSummaryCard
-                classItem={item}
-                teachers={classTeachers}
-                students={classStudents}
-                onEdit={() => setEditingClassId(item.id)}
-              />
-              <Dialog open={editingClassId === item.id} onOpenChange={(open) => setEditingClassId(open ? item.id : null)}>
-                <DialogContent className="sm:max-w-4xl">
-                  <ClassEditorCard
-                    mode="edit"
-                    classItem={item}
-                    teachers={teachers}
-                    teacherIds={teacherIds}
-                    students={classStudents}
-                    signOut={signOut}
-                    onCancel={() => setEditingClassId(null)}
-                    onSave={async (name, nextTeacherIds, nextStudentIds) => {
-                      const api = createApiClient();
-                      const currentTeacherSet = new Set(teacherIds);
-                      const nextTeacherSet = new Set(nextTeacherIds);
-                      const addTeacherIds = nextTeacherIds.filter((id) => !currentTeacherSet.has(id));
-                      const removeTeacherIds = teacherIds.filter((id) => !nextTeacherSet.has(id));
-                      const currentStudentIds = classStudents.map((student) => student.id);
-                      const currentStudentSet = new Set(currentStudentIds);
-                      const nextStudentSet = new Set(nextStudentIds);
-                      const addStudentIds = nextStudentIds.filter((id) => !currentStudentSet.has(id));
-                      const removeStudentIds = currentStudentIds.filter((id) => !nextStudentSet.has(id));
+					return (
+						<Fragment key={item.id}>
+							<ClassSummaryCard
+								classItem={item}
+								teachers={classTeachers}
+								students={classStudents}
+								onEdit={() => setEditingClassId(item.id)}
+							/>
+							<Dialog
+								open={editingClassId === item.id}
+								onOpenChange={(open) =>
+									setEditingClassId(open ? item.id : null)
+								}
+							>
+								<DialogContent className="sm:max-w-4xl">
+									<ClassEditorCard
+										mode="edit"
+										classItem={item}
+										teachers={teachers}
+										teacherIds={teacherIds}
+										students={classStudents}
+										signOut={signOut}
+										onCancel={() => setEditingClassId(null)}
+										onSave={async (name, nextTeacherIds, nextStudentIds) => {
+											const api = createApiClient();
+											const currentTeacherSet = new Set(teacherIds);
+											const nextTeacherSet = new Set(nextTeacherIds);
+											const addTeacherIds = nextTeacherIds.filter(
+												(id) => !currentTeacherSet.has(id),
+											);
+											const removeTeacherIds = teacherIds.filter(
+												(id) => !nextTeacherSet.has(id),
+											);
+											const currentStudentIds = classStudents.map(
+												(student) => student.id,
+											);
+											const currentStudentSet = new Set(currentStudentIds);
+											const nextStudentSet = new Set(nextStudentIds);
+											const addStudentIds = nextStudentIds.filter(
+												(id) => !currentStudentSet.has(id),
+											);
+											const removeStudentIds = currentStudentIds.filter(
+												(id) => !nextStudentSet.has(id),
+											);
 
-                      await unwrapResponse(api.admin.classes(item.id).put({ name }));
-                      if (addTeacherIds.length > 0) {
-                        await unwrapResponse(api.admin.classes.assignTeachers({ class_id: item.id, teacher_ids: addTeacherIds }));
-                      }
-                      if (removeTeacherIds.length > 0) {
-                        await unwrapResponse(api.admin.classes.removeTeachers({ class_id: item.id, teacher_ids: removeTeacherIds }));
-                      }
-                      if (addStudentIds.length > 0) {
-                        await unwrapResponse(api.admin.classes.assignStudents({ class_id: item.id, student_ids: addStudentIds }));
-                      }
-                      if (removeStudentIds.length > 0) {
-                        await unwrapResponse(api.admin.classes.removeStudents({ class_id: item.id, student_ids: removeStudentIds }));
-                      }
-                      setEditingClassId(null);
-                      toastSuccess('班级信息已保存。');
-                      await loadData();
-                    }}
-                  />
-                </DialogContent>
-              </Dialog>
-            </Fragment>
-          );
-        })}
-      </div>
-    </AdminPageFrame>
-  );
+											await unwrapResponse(
+												api.admin.classes(item.id).put({ name }),
+											);
+											if (addTeacherIds.length > 0) {
+												await unwrapResponse(
+													api.admin.classes.assignTeachers({
+														class_id: item.id,
+														teacher_ids: addTeacherIds,
+													}),
+												);
+											}
+											if (removeTeacherIds.length > 0) {
+												await unwrapResponse(
+													api.admin.classes.removeTeachers({
+														class_id: item.id,
+														teacher_ids: removeTeacherIds,
+													}),
+												);
+											}
+											if (addStudentIds.length > 0) {
+												await unwrapResponse(
+													api.admin.classes.assignStudents({
+														class_id: item.id,
+														student_ids: addStudentIds,
+													}),
+												);
+											}
+											if (removeStudentIds.length > 0) {
+												await unwrapResponse(
+													api.admin.classes.removeStudents({
+														class_id: item.id,
+														student_ids: removeStudentIds,
+													}),
+												);
+											}
+											setEditingClassId(null);
+											toastSuccess("班级信息已保存。");
+											await loadData();
+										}}
+									/>
+								</DialogContent>
+							</Dialog>
+						</Fragment>
+					);
+				})}
+			</div>
+		</AdminPageFrame>
+	);
 }
-
 
 function ClassSummaryCard({
-  classItem,
-  teachers,
-  students,
-  onEdit
+	classItem,
+	teachers,
+	students,
+	onEdit,
 }: {
-  classItem: ClassSummary;
-  teachers: UserSummary[];
-  students: StudentWithClassSummary[];
-  onEdit: () => void;
+	classItem: ClassSummary;
+	teachers: UserSummary[];
+	students: StudentWithClassSummary[];
+	onEdit: () => void;
 }) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle>{classItem.name}</CardTitle>
-          </div>
-          <Button variant="outline" size="sm" onClick={onEdit}>
-            <Pencil className="size-4" />
-            编辑
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">教师</p>
-          <CompactNameList emptyText="未分配教师" items={teachers.map((teacher) => `${teacher.name} (${teacher.uid})`)} />
-        </div>
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">学生</p>
-          <CompactNameList emptyText="未分配学生" items={students.map((student) => `${student.name} (${student.uid})`)} />
-        </div>
-      </CardContent>
-    </Card>
-  );
+	return (
+		<Card>
+			<CardHeader>
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="space-y-1">
+						<CardTitle>{classItem.name}</CardTitle>
+					</div>
+					<Button variant="outline" size="sm" onClick={onEdit}>
+						<Pencil className="size-4" />
+						编辑
+					</Button>
+				</div>
+			</CardHeader>
+			<CardContent className="grid gap-4 md:grid-cols-2">
+				<div className="space-y-2">
+					<p className="text-sm font-semibold">教师</p>
+					<CompactNameList
+						emptyText="未分配教师"
+						items={teachers.map(
+							(teacher) => `${teacher.name} (${teacher.uid})`,
+						)}
+					/>
+				</div>
+				<div className="space-y-2">
+					<p className="text-sm font-semibold">学生</p>
+					<CompactNameList
+						emptyText="未分配学生"
+						items={students.map(
+							(student) => `${student.name} (${student.uid})`,
+						)}
+					/>
+				</div>
+			</CardContent>
+		</Card>
+	);
 }
 
-function CompactNameList({ items, emptyText }: { items: string[]; emptyText: string }) {
-  const [expanded, setExpanded] = useState(false);
+function CompactNameList({
+	items,
+	emptyText,
+}: {
+	items: string[];
+	emptyText: string;
+}) {
+	const [expanded, setExpanded] = useState(false);
 
-  if (items.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyText}</p>;
-  }
+	if (items.length === 0) {
+		return <p className="text-sm text-muted-foreground">{emptyText}</p>;
+	}
 
-  const visibleItems = expanded ? items : items.slice(0, 12);
+	const visibleItems = expanded ? items : items.slice(0, 12);
 
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {visibleItems.map((item) => (
-        <span key={item} className="rounded-md bg-muted px-2 py-1 text-xs">
-          {item}
-        </span>
-      ))}
-      {items.length > 12 ? (
-        <button
-          type="button"
-          className="inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          onClick={() => setExpanded((current) => !current)}
-          aria-label={expanded ? '收起' : '展开全部'}
-        >
-          {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-        </button>
-      ) : null}
-    </div>
-  );
+	return (
+		<div className="flex flex-wrap gap-1.5">
+			{visibleItems.map((item) => (
+				<span key={item} className="rounded-md bg-muted px-2 py-1 text-xs">
+					{item}
+				</span>
+			))}
+			{items.length > 12 ? (
+				<button
+					type="button"
+					className="inline-flex h-6 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+					onClick={() => setExpanded((current) => !current)}
+					aria-label={expanded ? "收起" : "展开全部"}
+				>
+					{expanded ? (
+						<ChevronUp className="size-3.5" />
+					) : (
+						<ChevronDown className="size-3.5" />
+					)}
+				</button>
+			) : null}
+		</div>
+	);
 }
 
 function ClassEditorCard({
-  mode,
-  classItem,
-  teachers,
-  teacherIds = [],
-  students = [],
-  signOut,
-  onCancel,
-  onSave
+	mode,
+	classItem,
+	teachers,
+	teacherIds = [],
+	students = [],
+	signOut,
+	onCancel,
+	onSave,
 }: {
-  mode: 'create' | 'edit';
-  classItem?: ClassSummary;
-  teachers: UserSummary[];
-  teacherIds?: number[];
-  students?: StudentWithClassSummary[];
-  signOut: () => void;
-  onCancel: () => void;
-  onSave: (name: string, teacherIds: number[], studentIds: number[]) => Promise<void>;
+	mode: "create" | "edit";
+	classItem?: ClassSummary;
+	teachers: UserSummary[];
+	teacherIds?: number[];
+	students?: StudentWithClassSummary[];
+	signOut: () => void;
+	onCancel: () => void;
+	onSave: (
+		name: string,
+		teacherIds: number[],
+		studentIds: number[],
+	) => Promise<void>;
 }) {
-  const [name, setName] = useState(classItem?.name ?? '');
-  const [selectedTeacherIds, setSelectedTeacherIds] = useState<number[]>(teacherIds);
-  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>(students.map((student) => student.id));
-  const [saving, setSaving] = useState(false);
+	const [name, setName] = useState(classItem?.name ?? "");
+	const [selectedTeacherIds, setSelectedTeacherIds] =
+		useState<number[]>(teacherIds);
+	const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>(
+		students.map((student) => student.id),
+	);
+	const [saving, setSaving] = useState(false);
 
-  async function save() {
-    const normalizedName = name.trim();
+	async function save() {
+		const normalizedName = name.trim();
 
-    if (!normalizedName) {
-      toastError(new Error('请输入班级名称。'));
-      return;
-    }
+		if (!normalizedName) {
+			toastError(new Error("请输入班级名称。"));
+			return;
+		}
 
-    try {
-      setSaving(true);
-      await onSave(normalizedName, selectedTeacherIds, selectedStudentIds);
-    } catch (error) {
-      toastError(error, mode === 'create' ? '创建失败。' : '保存失败。');
-    } finally {
-      setSaving(false);
-    }
-  }
+		try {
+			setSaving(true);
+			await onSave(normalizedName, selectedTeacherIds, selectedStudentIds);
+		} catch (error) {
+			toastError(error, mode === "create" ? "创建失败。" : "保存失败。");
+		} finally {
+			setSaving(false);
+		}
+	}
 
-  return (
-    <div className="space-y-5">
-      <DialogHeader>
-        <DialogTitle>{mode === 'create' ? '添加班级' : `编辑 ${classItem?.name ?? ''}`}</DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <Field label="班级名称">
-          <Input value={name} onChange={(event) => setName(event.target.value)} />
-        </Field>
-        <TeacherMultiSelect teachers={teachers} value={selectedTeacherIds} onChange={setSelectedTeacherIds} />
-        <div className="lg:col-span-2">
-          <ClassStudentMultiSelect classId={classItem?.id ?? null} signOut={signOut} initialStudents={students} value={selectedStudentIds} onChange={setSelectedStudentIds} />
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={saving} onClick={() => void save()}>
-          {saving ? <Spinner className="size-4 text-current" /> : null}
-          保存
-        </Button>
-        <Button disabled={saving} variant="outline" onClick={onCancel}>取消</Button>
-      </div>
-    </div>
-  );
+	return (
+		<div className="space-y-5">
+			<DialogHeader>
+				<DialogTitle>
+					{mode === "create" ? "添加班级" : `编辑 ${classItem?.name ?? ""}`}
+				</DialogTitle>
+			</DialogHeader>
+			<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+				<Field label="班级名称">
+					<Input
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+					/>
+				</Field>
+				<TeacherMultiSelect
+					teachers={teachers}
+					value={selectedTeacherIds}
+					onChange={setSelectedTeacherIds}
+				/>
+				<div className="lg:col-span-2">
+					<ClassStudentMultiSelect
+						classId={classItem?.id ?? null}
+						signOut={signOut}
+						initialStudents={students}
+						value={selectedStudentIds}
+						onChange={setSelectedStudentIds}
+					/>
+				</div>
+			</div>
+			<div className="flex flex-wrap gap-2">
+				<Button disabled={saving} onClick={() => void save()}>
+					{saving ? <Spinner className="size-4 text-current" /> : null}
+					保存
+				</Button>
+				<Button disabled={saving} variant="outline" onClick={onCancel}>
+					取消
+				</Button>
+			</div>
+		</div>
+	);
 }
 
 function TeacherMultiSelect({
-  teachers,
-  value,
-  onChange
+	teachers,
+	value,
+	onChange,
 }: {
-  teachers: UserSummary[];
-  value: number[];
-  onChange: (value: number[]) => void;
+	teachers: UserSummary[];
+	value: number[];
+	onChange: (value: number[]) => void;
 }) {
-  const {
-    anchorRef,
-    query,
-    setQuery,
-    matchedItems: matchedTeachers,
-    visibleItems: visibleTeachers,
-    loadMoreItems: loadMoreTeachers,
-    resetCombobox
-  } = useComboboxPagedSearch({
-    items: teachers,
-    filter: matchUserSummary
-  });
-  const [selectedTeacherMap, setSelectedTeacherMap] = useState(() => new Map(teachers.map((teacher) => [teacher.id, teacher])));
-  const selectedTeachers = useMemo(
-    () => value.map((id) => selectedTeacherMap.get(id)).filter((teacher): teacher is UserSummary => Boolean(teacher)),
-    [selectedTeacherMap, value]
-  );
+	const {
+		anchorRef,
+		query,
+		setQuery,
+		matchedItems: matchedTeachers,
+		visibleItems: visibleTeachers,
+		loadMoreItems: loadMoreTeachers,
+		resetCombobox,
+	} = useComboboxPagedSearch({
+		items: teachers,
+		filter: matchUserSummary,
+	});
+	const [selectedTeacherMap, setSelectedTeacherMap] = useState(
+		() => new Map(teachers.map((teacher) => [teacher.id, teacher])),
+	);
+	const selectedTeachers = useMemo(
+		() =>
+			value
+				.map((id) => selectedTeacherMap.get(id))
+				.filter((teacher): teacher is UserSummary => Boolean(teacher)),
+		[selectedTeacherMap, value],
+	);
 
-  useEffect(() => {
-    setSelectedTeacherMap((current) => {
-      const next = new Map(current);
-      for (const teacher of teachers) {
-        next.set(teacher.id, teacher);
-      }
-      return next;
-    });
-  }, [teachers]);
+	useEffect(() => {
+		setSelectedTeacherMap((current) => {
+			const next = new Map(current);
+			for (const teacher of teachers) {
+				next.set(teacher.id, teacher);
+			}
+			return next;
+		});
+	}, [teachers]);
 
-  return (
-    <Field label="教师">
-      <Combobox
-        multiple
-        items={matchedTeachers}
-        inputValue={query}
-        value={selectedTeachers}
-        onInputValueChange={setQuery}
-        filter={null}
-        onValueChange={(nextValue) => {
-          setSelectedTeacherMap((current) => {
-            const next = new Map(current);
-            for (const teacher of nextValue) {
-              next.set(teacher.id, teacher);
-            }
-            return next;
-          });
-          onChange(nextValue.map((teacher) => teacher.id));
-        }}
-        itemToStringLabel={(teacher) => `${teacher.name} ${teacher.uid}`}
-        itemToStringValue={(teacher) => String(teacher.id)}
-        isItemEqualToValue={(item, selected) => item.id === selected.id}
-      >
-        <ComboboxChips ref={anchorRef} className="min-h-9 w-full">
-          {selectedTeachers.map((teacher) => (
-            <ComboboxChip key={teacher.id}>{teacher.name} ({teacher.uid})</ComboboxChip>
-          ))}
-          <ComboboxChipsInput placeholder={selectedTeachers.length > 0 ? '' : '筛选教师'} />
-          {selectedTeachers.length > 0 ? (
-            <Button type="button" variant="ghost" size="icon-xs" onClick={() => {
-              resetCombobox();
-              onChange([]);
-            }}>
-              <X className="size-3" />
-            </Button>
-          ) : null}
-        </ComboboxChips>
-        <ComboboxContent anchor={anchorRef} className="max-h-80">
-          <ComboboxEmpty>暂无教师</ComboboxEmpty>
-          <ComboboxList onScroll={loadMoreTeachers}>
-            <ComboboxGroup items={visibleTeachers}>
-              <ComboboxCollection>
-                {(teacher: UserSummary) => (
-                  <ComboboxItem key={teacher.id} value={teacher}>
-                    {teacher.name} ({teacher.uid})
-                  </ComboboxItem>
-                )}
-              </ComboboxCollection>
-            </ComboboxGroup>
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </Field>
-  );
+	return (
+		<Field label="教师">
+			<Combobox
+				multiple
+				items={matchedTeachers}
+				inputValue={query}
+				value={selectedTeachers}
+				onInputValueChange={setQuery}
+				filter={null}
+				onValueChange={(nextValue) => {
+					setSelectedTeacherMap((current) => {
+						const next = new Map(current);
+						for (const teacher of nextValue) {
+							next.set(teacher.id, teacher);
+						}
+						return next;
+					});
+					onChange(nextValue.map((teacher) => teacher.id));
+				}}
+				itemToStringLabel={(teacher) => `${teacher.name} ${teacher.uid}`}
+				itemToStringValue={(teacher) => String(teacher.id)}
+				isItemEqualToValue={(item, selected) => item.id === selected.id}
+			>
+				<ComboboxChips ref={anchorRef} className="min-h-9 w-full">
+					{selectedTeachers.map((teacher) => (
+						<ComboboxChip key={teacher.id}>
+							{teacher.name} ({teacher.uid})
+						</ComboboxChip>
+					))}
+					<ComboboxChipsInput
+						placeholder={selectedTeachers.length > 0 ? "" : "筛选教师"}
+					/>
+					{selectedTeachers.length > 0 ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							onClick={() => {
+								resetCombobox();
+								onChange([]);
+							}}
+						>
+							<X className="size-3" />
+						</Button>
+					) : null}
+				</ComboboxChips>
+				<ComboboxContent anchor={anchorRef} className="max-h-80">
+					<ComboboxEmpty>暂无教师</ComboboxEmpty>
+					<ComboboxList onScroll={loadMoreTeachers}>
+						<ComboboxGroup items={visibleTeachers}>
+							<ComboboxCollection>
+								{(teacher: UserSummary) => (
+									<ComboboxItem key={teacher.id} value={teacher}>
+										{teacher.name} ({teacher.uid})
+									</ComboboxItem>
+								)}
+							</ComboboxCollection>
+						</ComboboxGroup>
+					</ComboboxList>
+				</ComboboxContent>
+			</Combobox>
+		</Field>
+	);
 }
 
 function ClassStudentMultiSelect({
-  classId,
-  signOut,
-  initialStudents,
-  value,
-  onChange
+	classId,
+	signOut,
+	initialStudents,
+	value,
+	onChange,
 }: {
-  classId: number | null;
-  signOut: () => void;
-  initialStudents: StudentWithClassSummary[];
-  value: number[];
-  onChange: (value: number[]) => void;
+	classId: number | null;
+	signOut: () => void;
+	initialStudents: StudentWithClassSummary[];
+	value: number[];
+	onChange: (value: number[]) => void;
 }) {
-  const [students, setStudents] = useState<StudentWithClassSummary[]>(initialStudents);
-  const {
-    anchorRef,
-    query,
-    setQuery,
-    debouncedQuery,
-    visibleItems: visibleStudents,
-    loadMoreItems: loadMoreStudents,
-    resetCombobox
-  } = useComboboxPagedSearch({ items: students });
-  const [selectedStudentMap, setSelectedStudentMap] = useState(() => new Map(initialStudents.map((student) => [student.id, student])));
-  const [loading, setLoading] = useState(false);
-  const selectedStudents = useMemo(
-    () => value.map((id) => selectedStudentMap.get(id)).filter((student): student is StudentWithClassSummary => Boolean(student)),
-    [selectedStudentMap, value]
-  );
+	const [students, setStudents] =
+		useState<StudentWithClassSummary[]>(initialStudents);
+	const {
+		anchorRef,
+		query,
+		setQuery,
+		debouncedQuery,
+		visibleItems: visibleStudents,
+		loadMoreItems: loadMoreStudents,
+		resetCombobox,
+	} = useComboboxPagedSearch({ items: students });
+	const [selectedStudentMap, setSelectedStudentMap] = useState(
+		() => new Map(initialStudents.map((student) => [student.id, student])),
+	);
+	const [loading, setLoading] = useState(false);
+	const selectedStudents = useMemo(
+		() =>
+			value
+				.map((id) => selectedStudentMap.get(id))
+				.filter((student): student is StudentWithClassSummary =>
+					Boolean(student),
+				),
+		[selectedStudentMap, value],
+	);
 
-  useEffect(() => {
-    let cancelled = false;
+	useEffect(() => {
+		let cancelled = false;
 
-    async function loadMatchedStudents() {
-      setLoading(true);
-      try {
-        const data = await unwrapResponse<{ students: StudentWithClassSummary[] }>(
-          createApiClient().admin.classes.students.get({
-            query: {
-              q: debouncedQuery.trim() || undefined,
-              class_id: classId ? String(classId) : undefined
-            }
-          })
-        );
+		async function loadMatchedStudents() {
+			setLoading(true);
+			try {
+				const data = await unwrapResponse<{
+					students: StudentWithClassSummary[];
+				}>(
+					createApiClient().admin.classes.students.get({
+						query: {
+							q: debouncedQuery.trim() || undefined,
+							class_id: classId ? String(classId) : undefined,
+						},
+					}),
+				);
 
-        if (cancelled) return;
+				if (cancelled) return;
 
-        setStudents(data.students);
-        setSelectedStudentMap((current) => {
-          const next = new Map(current);
-          for (const student of data.students) {
-            next.set(student.id, student);
-          }
-          return next;
-        });
-      } catch (error) {
-        if (error instanceof ApiResponseError && error.status === 401) signOut();
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+				setStudents(data.students);
+				setSelectedStudentMap((current) => {
+					const next = new Map(current);
+					for (const student of data.students) {
+						next.set(student.id, student);
+					}
+					return next;
+				});
+			} catch (error) {
+				if (error instanceof ApiResponseError && error.status === 401)
+					signOut();
+			} finally {
+				if (!cancelled) setLoading(false);
+			}
+		}
 
-    void loadMatchedStudents();
+		void loadMatchedStudents();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [classId, debouncedQuery, signOut]);
+		return () => {
+			cancelled = true;
+		};
+	}, [classId, debouncedQuery, signOut]);
 
-  return (
-    <Field label="学生">
-      <Combobox
-        multiple
-        items={students}
-        inputValue={query}
-        value={selectedStudents}
-        onInputValueChange={setQuery}
-        filter={null}
-        onValueChange={(nextValue) => {
-          setSelectedStudentMap((current) => {
-            const next = new Map(current);
-            for (const student of nextValue) {
-              next.set(student.id, student);
-            }
-            return next;
-          });
-          onChange(nextValue.map((student) => student.id));
-        }}
-        itemToStringLabel={(student) => `${student.name} ${student.uid}`}
-        itemToStringValue={(student) => String(student.id)}
-        isItemEqualToValue={(item, selected) => item.id === selected.id}
-      >
-        <ComboboxChips ref={anchorRef} className="min-h-9 w-full">
-          {selectedStudents.map((student) => (
-            <ComboboxChip key={student.id}>{student.name} ({student.uid})</ComboboxChip>
-          ))}
-          <ComboboxChipsInput placeholder={selectedStudents.length > 0 ? '' : 'UID / 姓名'} />
-          {selectedStudents.length > 0 ? (
-            <Button type="button" variant="ghost" size="icon-xs" onClick={() => {
-              resetCombobox();
-              onChange([]);
-            }}>
-              <X className="size-3" />
-            </Button>
-          ) : null}
-        </ComboboxChips>
-        <ComboboxContent anchor={anchorRef} className="max-h-80">
-          <ComboboxEmpty>暂无学生</ComboboxEmpty>
-          {loading && students.length === 0 ? (
-            <div className="px-2 py-2 text-sm text-muted-foreground">加载中...</div>
-          ) : (
-            <ComboboxList onScroll={loadMoreStudents}>
-              <ComboboxGroup items={visibleStudents}>
-                <ComboboxCollection>
-                  {(student: StudentWithClassSummary) => (
-                    <ComboboxItem key={student.id} value={student}>
-                      {student.name} ({student.uid})
-                    </ComboboxItem>
-                  )}
-                </ComboboxCollection>
-              </ComboboxGroup>
-            </ComboboxList>
-          )}
-        </ComboboxContent>
-      </Combobox>
-    </Field>
-  );
+	return (
+		<Field label="学生">
+			<Combobox
+				multiple
+				items={students}
+				inputValue={query}
+				value={selectedStudents}
+				onInputValueChange={setQuery}
+				filter={null}
+				onValueChange={(nextValue) => {
+					setSelectedStudentMap((current) => {
+						const next = new Map(current);
+						for (const student of nextValue) {
+							next.set(student.id, student);
+						}
+						return next;
+					});
+					onChange(nextValue.map((student) => student.id));
+				}}
+				itemToStringLabel={(student) => `${student.name} ${student.uid}`}
+				itemToStringValue={(student) => String(student.id)}
+				isItemEqualToValue={(item, selected) => item.id === selected.id}
+			>
+				<ComboboxChips ref={anchorRef} className="min-h-9 w-full">
+					{selectedStudents.map((student) => (
+						<ComboboxChip key={student.id}>
+							{student.name} ({student.uid})
+						</ComboboxChip>
+					))}
+					<ComboboxChipsInput
+						placeholder={selectedStudents.length > 0 ? "" : "UID / 姓名"}
+					/>
+					{selectedStudents.length > 0 ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							onClick={() => {
+								resetCombobox();
+								onChange([]);
+							}}
+						>
+							<X className="size-3" />
+						</Button>
+					) : null}
+				</ComboboxChips>
+				<ComboboxContent anchor={anchorRef} className="max-h-80">
+					<ComboboxEmpty>暂无学生</ComboboxEmpty>
+					{loading && students.length === 0 ? (
+						<div className="px-2 py-2 text-sm text-muted-foreground">
+							加载中...
+						</div>
+					) : (
+						<ComboboxList onScroll={loadMoreStudents}>
+							<ComboboxGroup items={visibleStudents}>
+								<ComboboxCollection>
+									{(student: StudentWithClassSummary) => (
+										<ComboboxItem key={student.id} value={student}>
+											{student.name} ({student.uid})
+										</ComboboxItem>
+									)}
+								</ComboboxCollection>
+							</ComboboxGroup>
+						</ComboboxList>
+					)}
+				</ComboboxContent>
+			</Combobox>
+		</Field>
+	);
 }
 
-function AssignmentStudentFilter({
-  signOut,
-  value,
-  onChange
+export function AssignmentStudentFilter({
+	signOut,
+	value,
+	onChange,
 }: {
-  signOut: () => void;
-  value: number[];
-  onChange: (value: number[], selectedStudents: StudentWithClassSummary[]) => void;
+	signOut: () => void;
+	value: number[];
+	onChange: (
+		value: number[],
+		selectedStudents: StudentWithClassSummary[],
+	) => void;
 }) {
-  const [students, setStudents] = useState<StudentWithClassSummary[]>([]);
-  const {
-    anchorRef,
-    query,
-    setQuery,
-    debouncedQuery,
-    visibleItems: visibleStudents,
-    loadMoreItems: loadMoreStudents,
-    resetCombobox
-  } = useComboboxPagedSearch({ items: students });
-  const [selectedStudentMap, setSelectedStudentMap] = useState(() => new Map<number, StudentWithClassSummary>());
-  const [loading, setLoading] = useState(false);
-  const studentGroups = useMemo(() => {
-    const groupMap = new Map<string, { value: string; items: StudentWithClassSummary[] }>();
+	const [students, setStudents] = useState<StudentWithClassSummary[]>([]);
+	const {
+		anchorRef,
+		query,
+		setQuery,
+		debouncedQuery,
+		visibleItems: visibleStudents,
+		loadMoreItems: loadMoreStudents,
+		resetCombobox,
+	} = useComboboxPagedSearch({ items: students });
+	const [selectedStudentMap, setSelectedStudentMap] = useState(
+		() => new Map<number, StudentWithClassSummary>(),
+	);
+	const [loading, setLoading] = useState(false);
+	const studentGroups = useMemo(() => {
+		const groupMap = new Map<
+			string,
+			{ value: string; items: StudentWithClassSummary[] }
+		>();
 
-    for (const student of visibleStudents) {
-      const groupKey = student.class_id ? String(student.class_id) : '__unassigned__';
-      const groupLabel = student.class_id && student.class_name
-        ? student.class_name
-        : '未分配';
-      const group = groupMap.get(groupKey) ?? { value: groupLabel, items: [] };
-      group.items.push(student);
-      groupMap.set(groupKey, group);
-    }
+		for (const student of visibleStudents) {
+			const groupKey = student.class_id
+				? String(student.class_id)
+				: "__unassigned__";
+			const groupLabel =
+				student.class_id && student.class_name ? student.class_name : "未分配";
+			const group = groupMap.get(groupKey) ?? { value: groupLabel, items: [] };
+			group.items.push(student);
+			groupMap.set(groupKey, group);
+		}
 
-    return [...groupMap.values()];
-  }, [visibleStudents]);
-  const selectedStudents = useMemo(
-    () => value.map((id) => selectedStudentMap.get(id)).filter((student): student is StudentWithClassSummary => Boolean(student)),
-    [selectedStudentMap, value]
-  );
+		return [...groupMap.values()];
+	}, [visibleStudents]);
+	const selectedStudents = useMemo(
+		() =>
+			value
+				.map((id) => selectedStudentMap.get(id))
+				.filter((student): student is StudentWithClassSummary =>
+					Boolean(student),
+				),
+		[selectedStudentMap, value],
+	);
 
-  useEffect(() => {
-    let cancelled = false;
+	useEffect(() => {
+		let cancelled = false;
 
-    async function loadMatchedStudents() {
-      setLoading(true);
-      try {
-        const data = await unwrapResponse<{ students: StudentWithClassSummary[] }>(
-          createApiClient().admin.classes.students.get({ query: { q: debouncedQuery.trim() || undefined } })
-        );
+		async function loadMatchedStudents() {
+			setLoading(true);
+			try {
+				const data = await unwrapResponse<{
+					students: StudentWithClassSummary[];
+				}>(
+					createApiClient().admin.classes.students.get({
+						query: { q: debouncedQuery.trim() || undefined },
+					}),
+				);
 
-        if (cancelled) return;
+				if (cancelled) return;
 
-        setStudents(data.students);
-        setSelectedStudentMap((current) => {
-          const next = new Map(current);
-          for (const student of data.students) {
-            next.set(student.id, student);
-          }
-          return next;
-        });
-      } catch (error) {
-        if (error instanceof ApiResponseError && error.status === 401) signOut();
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+				setStudents(data.students);
+				setSelectedStudentMap((current) => {
+					const next = new Map(current);
+					for (const student of data.students) {
+						next.set(student.id, student);
+					}
+					return next;
+				});
+			} catch (error) {
+				if (error instanceof ApiResponseError && error.status === 401)
+					signOut();
+			} finally {
+				if (!cancelled) setLoading(false);
+			}
+		}
 
-    void loadMatchedStudents();
+		void loadMatchedStudents();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedQuery, signOut]);
+		return () => {
+			cancelled = true;
+		};
+	}, [debouncedQuery, signOut]);
 
-  return (
-    <Field label="筛选学生">
-      <Combobox
-        multiple
-        items={studentGroups}
-        inputValue={query}
-        value={selectedStudents}
-        onInputValueChange={setQuery}
-        filter={null}
-        onValueChange={(nextValue) => {
-          setSelectedStudentMap((current) => {
-            const next = new Map(current);
-            for (const student of nextValue) {
-              next.set(student.id, student);
-            }
-            return next;
-          });
-          onChange(nextValue.map((student) => student.id), nextValue);
-        }}
-        itemToStringLabel={(item: StudentWithClassSummary) => `${item.name} ${item.uid}`}
-        itemToStringValue={(item: StudentWithClassSummary) => String(item.id)}
-        isItemEqualToValue={(item: { id?: number }, selected: StudentWithClassSummary) => item.id === selected.id}
-      >
-        <ComboboxChips ref={anchorRef} className="min-h-9 w-full">
-          {selectedStudents.map((student) => (
-            <ComboboxChip key={student.id}>{student.name} ({student.uid})</ComboboxChip>
-          ))}
-          <ComboboxChipsInput placeholder={selectedStudents.length > 0 ? '' : 'UID / 姓名'} />
-          {selectedStudents.length > 0 ? (
-            <Button type="button" variant="ghost" size="icon-xs" onClick={() => {
-              resetCombobox();
-              onChange([], []);
-            }}>
-              <X className="size-3" />
-            </Button>
-          ) : null}
-        </ComboboxChips>
-        <ComboboxContent anchor={anchorRef} className="max-h-80">
-          <ComboboxEmpty>暂无学生</ComboboxEmpty>
-          {loading && students.length === 0 ? (
-            <div className="px-2 py-2 text-sm text-muted-foreground">加载中...</div>
-          ) : (
-            <ComboboxList onScroll={loadMoreStudents}>
-              {(group, index) => (
-                <ComboboxGroup key={group.value} items={group.items}>
-                  <ComboboxLabel>{group.value}</ComboboxLabel>
-                  <ComboboxCollection>
-                    {(student: StudentWithClassSummary) => (
-                      <ComboboxItem key={student.id} value={student}>
-                        {student.name} ({student.uid})
-                      </ComboboxItem>
-                    )}
-                  </ComboboxCollection>
-                  {index < studentGroups.length - 1 && <ComboboxSeparator />}
-                </ComboboxGroup>
-              )}
-            </ComboboxList>
-          )}
-        </ComboboxContent>
-      </Combobox>
-    </Field>
-  );
+	return (
+		<Field label="筛选学生">
+			<Combobox
+				multiple
+				items={studentGroups}
+				inputValue={query}
+				value={selectedStudents}
+				onInputValueChange={setQuery}
+				filter={null}
+				onValueChange={(nextValue) => {
+					setSelectedStudentMap((current) => {
+						const next = new Map(current);
+						for (const student of nextValue) {
+							next.set(student.id, student);
+						}
+						return next;
+					});
+					onChange(
+						nextValue.map((student) => student.id),
+						nextValue,
+					);
+				}}
+				itemToStringLabel={(item: StudentWithClassSummary) =>
+					`${item.name} ${item.uid}`
+				}
+				itemToStringValue={(item: StudentWithClassSummary) => String(item.id)}
+				isItemEqualToValue={(
+					item: { id?: number },
+					selected: StudentWithClassSummary,
+				) => item.id === selected.id}
+			>
+				<ComboboxChips ref={anchorRef} className="min-h-9 w-full">
+					{selectedStudents.map((student) => (
+						<ComboboxChip key={student.id}>
+							{student.name} ({student.uid})
+						</ComboboxChip>
+					))}
+					<ComboboxChipsInput
+						placeholder={selectedStudents.length > 0 ? "" : "UID / 姓名"}
+					/>
+					{selectedStudents.length > 0 ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							onClick={() => {
+								resetCombobox();
+								onChange([], []);
+							}}
+						>
+							<X className="size-3" />
+						</Button>
+					) : null}
+				</ComboboxChips>
+				<ComboboxContent anchor={anchorRef} className="max-h-80">
+					<ComboboxEmpty>暂无学生</ComboboxEmpty>
+					{loading && students.length === 0 ? (
+						<div className="px-2 py-2 text-sm text-muted-foreground">
+							加载中...
+						</div>
+					) : (
+						<ComboboxList onScroll={loadMoreStudents}>
+							{(group, index) => (
+								<ComboboxGroup key={group.value} items={group.items}>
+									<ComboboxLabel>{group.value}</ComboboxLabel>
+									<ComboboxCollection>
+										{(student: StudentWithClassSummary) => (
+											<ComboboxItem key={student.id} value={student}>
+												{student.name} ({student.uid})
+											</ComboboxItem>
+										)}
+									</ComboboxCollection>
+									{index < studentGroups.length - 1 && <ComboboxSeparator />}
+								</ComboboxGroup>
+							)}
+						</ComboboxList>
+					)}
+				</ComboboxContent>
+			</Combobox>
+		</Field>
+	);
 }

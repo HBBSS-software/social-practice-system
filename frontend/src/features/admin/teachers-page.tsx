@@ -1,420 +1,593 @@
-import { ArrowDown, ArrowUp, ChevronDown, FileUp, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef } from "@tanstack/react-table";
+import { useEffect, useMemo, useState } from "react";
 
-import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
-import { DataTable } from '@/components/data-table';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
+import { DataTable } from "@/components/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxCollection,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxGroup,
-  ComboboxItem,
-  ComboboxLabel,
-  ComboboxList,
-  ComboboxSeparator,
-  useComboboxAnchor
-} from '@/components/ui/combobox';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Spinner } from '@/components/ui/spinner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useSession } from '@/lib/auth';
-import { ApiResponseError, createApiClient, importUserCsv, unwrapResponse, validatePlainPassword } from '@/lib/api';
-import { toastError, toastSuccess } from '@/lib/feedback';
-import { formatDateTime, formatDuration } from '@/lib/format';
-import { useRuntimeConfig } from '@/lib/runtime-config';
-import { useShiftMultiSelect } from '@/lib/shift-selection';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
-import type { ClassAssignments, ClassSummary, CreatedUser, CreatedUserPayload, CreatedUsersPayload, CsvImportEntry, CsvImportPreview, StudentSummary, StudentWithClassSummary, TeacherStatistics, UserRole, UserSummary } from '@/lib/types';
-import { includesSearch, ListSearchBar, type ListSearchState } from '@/shared/list-search-bar';
-import { PasswordRequirements } from '@/shared/password-requirements';
-import { UserCredentialsResult } from '@/shared/user-credentials-result';
-import { AdminPageFrame, Field, SortButton, type CredentialsResult } from './shared';
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
+	ApiResponseError,
+	createApiClient,
+	unwrapResponse,
+	validatePlainPassword,
+} from "@/lib/api";
+import { useSession } from "@/lib/auth";
+import { toastError, toastSuccess } from "@/lib/feedback";
+import { formatDateTime } from "@/lib/format";
+import { useRuntimeConfig } from "@/lib/runtime-config";
+import { useShiftMultiSelect } from "@/lib/shift-selection";
+import type {
+	ClassAssignments,
+	ClassSummary,
+	CreatedUsersPayload,
+	UserSummary,
+} from "@/lib/types";
+import {
+	includesSearch,
+	ListSearchBar,
+	type ListSearchState,
+} from "@/shared/list-search-bar";
+import { PasswordRequirements } from "@/shared/password-requirements";
+import { UserCredentialsResult } from "@/shared/user-credentials-result";
+import {
+	AdminPageFrame,
+	type CredentialsResult,
+	Field,
+	SortButton,
+} from "./shared";
 
-type UserSearchField = 'name' | 'uid';
+type UserSearchField = "name" | "uid";
 const userSearchOptions = [
-  { label: '姓名', value: 'name' },
-  { label: 'UID', value: 'uid' }
+	{ label: "姓名", value: "name" },
+	{ label: "UID", value: "uid" },
 ] satisfies Array<{ label: string; value: UserSearchField }>;
-const defaultUserSearch: ListSearchState<UserSearchField> = { field: 'name', query: '' };
+const defaultUserSearch: ListSearchState<UserSearchField> = {
+	field: "name",
+	query: "",
+};
 
 export function AdminTeachersPage() {
-  return <UserListPage role="teacher" title="教师列表" />;
+	return <UserListPage userRole="teacher" title="教师列表" />;
 }
 
 function UserListPage({
-  role,
-  title
+	userRole,
+	title,
 }: {
-  role: 'student' | 'teacher';
-  title: string;
+	userRole: "student" | "teacher";
+	title: string;
 }) {
-  const { signOut } = useSession();
-  const runtimeConfig = useRuntimeConfig();
-  const clientOffsetMs = runtimeConfig.client_time_offset_ms;
-  const { captureShiftKey, resetSelectionAnchor, updateSelection } = useShiftMultiSelect();
-  const [users, setUsers] = useState<UserSummary[]>([]);
-  const [classes, setClasses] = useState<ClassSummary[]>([]);
-  const [assignments, setAssignments] = useState<ClassAssignments>({ teachers: [], students: [] });
-  const [sortBy, setSortBy] = useState<'uid-asc' | 'uid-desc' | 'name-asc' | 'name-desc'>('uid-asc');
-  const [searchDraft, setSearchDraft] = useState<ListSearchState<UserSearchField>>(defaultUserSearch);
-  const [search, setSearch] = useState<ListSearchState<UserSearchField>>(defaultUserSearch);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [editing, setEditing] = useState<UserSummary | null>(null);
-  const [form, setForm] = useState({ name: '', english_name: '', password: '' });
-  const [batchResetOpen, setBatchResetOpen] = useState(false);
-  const [resetLoading, setResetLoading] = useState(false);
-  const [resetResult, setResetResult] = useState<CredentialsResult | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<UserSummary | null>(null);
-  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+	const { signOut } = useSession();
+	const runtimeConfig = useRuntimeConfig();
+	const clientOffsetMs = runtimeConfig.client_time_offset_ms;
+	const { captureShiftKey, resetSelectionAnchor, updateSelection } =
+		useShiftMultiSelect();
+	const [users, setUsers] = useState<UserSummary[]>([]);
+	const [classes, setClasses] = useState<ClassSummary[]>([]);
+	const [assignments, setAssignments] = useState<ClassAssignments>({
+		teachers: [],
+		students: [],
+	});
+	const [sortBy, setSortBy] = useState<
+		"uid-asc" | "uid-desc" | "name-asc" | "name-desc"
+	>("uid-asc");
+	const [searchDraft, setSearchDraft] =
+		useState<ListSearchState<UserSearchField>>(defaultUserSearch);
+	const [search, setSearch] =
+		useState<ListSearchState<UserSearchField>>(defaultUserSearch);
+	const [selectedIds, setSelectedIds] = useState<number[]>([]);
+	const [editing, setEditing] = useState<UserSummary | null>(null);
+	const [form, setForm] = useState({
+		name: "",
+		english_name: "",
+		password: "",
+	});
+	const [batchResetOpen, setBatchResetOpen] = useState(false);
+	const [resetLoading, setResetLoading] = useState(false);
+	const [resetResult, setResetResult] = useState<CredentialsResult | null>(
+		null,
+	);
+	const [deleteTarget, setDeleteTarget] = useState<UserSummary | null>(null);
+	const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+	const [deleteLoading, setDeleteLoading] = useState(false);
 
-  async function loadUsers() {
-    try {
-      const api = createApiClient();
-      const [usersData, classData] = await Promise.all([
-        unwrapResponse<{ users: UserSummary[] }>(api.admin.users.get({ query: { role } })),
-        role === 'teacher'
-          ? unwrapResponse<{ classes: ClassSummary[]; assignments: ClassAssignments }>(api.admin.classes.get())
-          : Promise.resolve({ classes: [], assignments: { teachers: [], students: [] } })
-      ]);
-      setUsers(usersData.users);
-      setClasses(classData.classes);
-      setAssignments(classData.assignments);
-      setSelectedIds([]);
-      resetSelectionAnchor();
-    } catch (error) {
-      if (error instanceof ApiResponseError && error.status === 401) {
-        signOut();
-        return;
-      }
+	async function loadUsers() {
+		try {
+			const api = createApiClient();
+			const [usersData, classData] = await Promise.all([
+				unwrapResponse<{ users: UserSummary[] }>(
+					api.admin.users.get({ query: { role: userRole } }),
+				),
+				userRole === "teacher"
+					? unwrapResponse<{
+							classes: ClassSummary[];
+							assignments: ClassAssignments;
+						}>(api.admin.classes.get())
+					: Promise.resolve({
+							classes: [],
+							assignments: { teachers: [], students: [] },
+						}),
+			]);
+			setUsers(usersData.users);
+			setClasses(classData.classes);
+			setAssignments(classData.assignments);
+			setSelectedIds([]);
+			resetSelectionAnchor();
+		} catch (error) {
+			if (error instanceof ApiResponseError && error.status === 401) {
+				signOut();
+				return;
+			}
 
-      toastError(error, '加载账号列表失败。');
-    }
-  }
+			toastError(error, "加载账号列表失败。");
+		}
+	}
 
-  useEffect(() => {
-    void loadUsers();
-  }, [role]);
+	useEffect(() => {
+		void loadUsers();
+	}, [userRole]);
 
-  const searchedUsers = useMemo(() => {
-    const query = search.query.trim();
-    if (!query) return users;
+	const searchedUsers = useMemo(() => {
+		const query = search.query.trim();
+		if (!query) return users;
 
-    return users.filter((user) => includesSearch(search.field === 'uid' ? String(user.uid) : user.name, query));
-  }, [search, users]);
+		return users.filter((user) =>
+			includesSearch(
+				search.field === "uid" ? String(user.uid) : user.name,
+				query,
+			),
+		);
+	}, [search, users]);
 
-  const sortedUsers = useMemo(() => {
-    return [...searchedUsers].sort((left, right) => {
-      if (sortBy === 'uid-desc') return right.uid - left.uid;
-      if (sortBy === 'name-asc') return left.name.localeCompare(right.name);
-      if (sortBy === 'name-desc') return right.name.localeCompare(left.name);
-      return left.uid - right.uid;
-    });
-  }, [searchedUsers, sortBy]);
+	const sortedUsers = useMemo(() => {
+		return [...searchedUsers].sort((left, right) => {
+			if (sortBy === "uid-desc") return right.uid - left.uid;
+			if (sortBy === "name-asc") return left.name.localeCompare(right.name);
+			if (sortBy === "name-desc") return right.name.localeCompare(left.name);
+			return left.uid - right.uid;
+		});
+	}, [searchedUsers, sortBy]);
 
-  const userIds = useMemo(() => sortedUsers.map((user) => user.id), [sortedUsers]);
-  const selectedUserIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const allSelected = sortedUsers.length > 0 && selectedIds.length === sortedUsers.length;
-  const classMap = useMemo(() => new Map(classes.map((item) => [item.id, item])), [classes]);
-  const teacherClassMap = useMemo(() => {
-    const next = new Map<number, ClassSummary[]>();
+	const userIds = useMemo(
+		() => sortedUsers.map((user) => user.id),
+		[sortedUsers],
+	);
+	const selectedUserIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+	const allSelected =
+		sortedUsers.length > 0 && selectedIds.length === sortedUsers.length;
+	const classMap = useMemo(
+		() => new Map(classes.map((item) => [item.id, item])),
+		[classes],
+	);
+	const teacherClassMap = useMemo(() => {
+		const next = new Map<number, ClassSummary[]>();
 
-    for (const assignment of assignments.teachers) {
-      const classItem = classMap.get(assignment.class_id);
-      if (!classItem) continue;
-      next.set(assignment.teacher_id, [...(next.get(assignment.teacher_id) ?? []), classItem]);
-    }
+		for (const assignment of assignments.teachers) {
+			const classItem = classMap.get(assignment.class_id);
+			if (!classItem) continue;
+			next.set(assignment.teacher_id, [
+				...(next.get(assignment.teacher_id) ?? []),
+				classItem,
+			]);
+		}
 
-    return next;
-  }, [assignments.teachers, classMap]);
+		return next;
+	}, [assignments.teachers, classMap]);
 
-  const columns = useMemo<Array<ColumnDef<UserSummary>>>(() => [
-    {
-      id: 'select',
-      header: () => (
-        <Checkbox
-          checked={allSelected}
-          onCheckedChange={(checked) => setSelectedIds(checked ? userIds : [])}
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={selectedUserIdSet.has(row.original.id)}
-          onClick={captureShiftKey}
-          onCheckedChange={(checked) =>
-            setSelectedIds((current) =>
-              updateSelection(userIds, current, row.original.id, checked === true)
-            )
-          }
-        />
-      )
-    },
-    {
-      accessorKey: 'uid',
-      header: () => (
-        <SortButton
-          active={sortBy === 'uid-asc' || sortBy === 'uid-desc'}
-          descending={sortBy === 'uid-desc'}
-          label="UID"
-          onClick={() => setSortBy((current) => current === 'uid-asc' ? 'uid-desc' : 'uid-asc')}
-        />
-      )
-    },
-    {
-      accessorKey: 'name',
-      header: () => (
-        <SortButton
-          active={sortBy === 'name-asc' || sortBy === 'name-desc'}
-          descending={sortBy === 'name-desc'}
-          label="姓名"
-          onClick={() => setSortBy((current) => current === 'name-asc' ? 'name-desc' : 'name-asc')}
-        />
-      ),
-      cell: ({ row }) => row.original.name
-    },
-    {
-      accessorKey: 'created_at',
-      header: '创建时间',
-      cell: ({ row }) => <span className="text-muted-foreground">{formatDateTime(row.original.created_at, '-', clientOffsetMs)}</span>
-    },
-    ...(role === 'teacher' ? [{
-      id: 'classes',
-      header: '管理班级',
-      cell: ({ row }) => {
-        const managedClasses = teacherClassMap.get(row.original.id) ?? [];
+	const columns = useMemo<Array<ColumnDef<UserSummary>>>(
+		() => [
+			{
+				id: "select",
+				header: () => (
+					<Checkbox
+						checked={allSelected}
+						onCheckedChange={(checked) =>
+							setSelectedIds(checked ? userIds : [])
+						}
+					/>
+				),
+				cell: ({ row }) => (
+					<Checkbox
+						checked={selectedUserIdSet.has(row.original.id)}
+						onClick={captureShiftKey}
+						onCheckedChange={(checked) =>
+							setSelectedIds((current) =>
+								updateSelection(
+									userIds,
+									current,
+									row.original.id,
+									checked === true,
+								),
+							)
+						}
+					/>
+				),
+			},
+			{
+				accessorKey: "uid",
+				header: () => (
+					<SortButton
+						active={sortBy === "uid-asc" || sortBy === "uid-desc"}
+						descending={sortBy === "uid-desc"}
+						label="UID"
+						onClick={() =>
+							setSortBy((current) =>
+								current === "uid-asc" ? "uid-desc" : "uid-asc",
+							)
+						}
+					/>
+				),
+			},
+			{
+				accessorKey: "name",
+				header: () => (
+					<SortButton
+						active={sortBy === "name-asc" || sortBy === "name-desc"}
+						descending={sortBy === "name-desc"}
+						label="姓名"
+						onClick={() =>
+							setSortBy((current) =>
+								current === "name-asc" ? "name-desc" : "name-asc",
+							)
+						}
+					/>
+				),
+				cell: ({ row }) => row.original.name,
+			},
+			{
+				accessorKey: "created_at",
+				header: "创建时间",
+				cell: ({ row }) => (
+					<span className="text-muted-foreground">
+						{formatDateTime(row.original.created_at, "-", clientOffsetMs)}
+					</span>
+				),
+			},
+			...(userRole === "teacher"
+				? [
+						{
+							id: "classes",
+							header: "管理班级",
+							cell: ({ row }) => {
+								const managedClasses =
+									teacherClassMap.get(row.original.id) ?? [];
 
-        return managedClasses.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {managedClasses.map((item) => (
-              <Badge key={item.id} variant="secondary">{item.name}</Badge>
-            ))}
-          </div>
-        ) : <span className="text-muted-foreground">未分配</span>;
-      }
-    } satisfies ColumnDef<UserSummary>] : []),
-    {
-      id: 'actions',
-      header: '操作',
-      cell: ({ row }) => (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setEditing(row.original);
-              setForm({ name: row.original.name, english_name: row.original.english_name ?? '', password: '' });
-            }}
-          >
-            编辑
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(row.original)}>
-            删除
-          </Button>
-        </div>
-      )
-    }
-  ], [allSelected, captureShiftKey, role, clientOffsetMs, selectedUserIdSet, sortBy, teacherClassMap, updateSelection, userIds]);
+								return managedClasses.length > 0 ? (
+									<div className="flex flex-wrap gap-1.5">
+										{managedClasses.map((item) => (
+											<Badge key={item.id} variant="secondary">
+												{item.name}
+											</Badge>
+										))}
+									</div>
+								) : (
+									<span className="text-muted-foreground">未分配</span>
+								);
+							},
+						} satisfies ColumnDef<UserSummary>,
+					]
+				: []),
+			{
+				id: "actions",
+				header: "操作",
+				cell: ({ row }) => (
+					<div className="flex flex-wrap gap-2">
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() => {
+								setEditing(row.original);
+								setForm({
+									name: row.original.name,
+									english_name: row.original.english_name ?? "",
+									password: "",
+								});
+							}}
+						>
+							编辑
+						</Button>
+						<Button
+							size="sm"
+							variant="destructive"
+							onClick={() => setDeleteTarget(row.original)}
+						>
+							删除
+						</Button>
+					</div>
+				),
+			},
+		],
+		[
+			allSelected,
+			captureShiftKey,
+			userRole,
+			clientOffsetMs,
+			selectedUserIdSet,
+			sortBy,
+			teacherClassMap,
+			updateSelection,
+			userIds,
+		],
+	);
 
-  return (
-    <AdminPageFrame title={title}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex w-full flex-wrap items-center gap-3 lg:w-auto">
-          {selectedIds.length > 0 ? (
-            <div className="flex w-full flex-wrap items-center gap-2 rounded-2xl border bg-muted/40 p-2 sm:w-auto">
-              <p className="mr-1 text-sm text-muted-foreground">已选 {selectedIds.length} 人</p>
-              <Button size="sm" onClick={() => setBatchResetOpen(true)}>重置密码</Button>
-              <Button size="sm" variant="destructive" onClick={() => setBatchDeleteOpen(true)}>删除</Button>
-            </div>
-          ) : null}
-          <ListSearchBar
-            value={searchDraft}
-            options={userSearchOptions}
-            placeholder={searchDraft.field === 'uid' ? '搜索 UID' : '搜索姓名'}
-            onChange={setSearchDraft}
-            onSearch={() => {
-              setSearch({ field: searchDraft.field, query: searchDraft.query.trim() });
-              setSelectedIds([]);
-              resetSelectionAnchor();
-            }}
-          />
-        </div>
-        <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-          <SelectTrigger className="w-full sm:w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="uid-asc">UID 从小到大</SelectItem>
-            <SelectItem value="uid-desc">UID 从大到小</SelectItem>
-            <SelectItem value="name-asc">姓名 A-Z</SelectItem>
-            <SelectItem value="name-desc">姓名 Z-A</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <DataTable columns={columns} data={sortedUsers} pagination={{ pageSize: 50 }} />
-      {resetResult ? (
-        <UserCredentialsResult
-          autoDownload
-          users={resetResult.users}
-          credentialsCsv={resetResult.credentialsCsv}
-          filename="reset_teachers.csv"
-          summary={`成功重置 ${resetResult.users.length} 个教师的密码。`}
-        />
-      ) : null}
+	return (
+		<AdminPageFrame title={title}>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex w-full flex-wrap items-center gap-3 lg:w-auto">
+					{selectedIds.length > 0 ? (
+						<div className="flex w-full flex-wrap items-center gap-2 rounded-2xl border bg-muted/40 p-2 sm:w-auto">
+							<p className="mr-1 text-sm text-muted-foreground">
+								已选 {selectedIds.length} 人
+							</p>
+							<Button size="sm" onClick={() => setBatchResetOpen(true)}>
+								重置密码
+							</Button>
+							<Button
+								size="sm"
+								variant="destructive"
+								onClick={() => setBatchDeleteOpen(true)}
+							>
+								删除
+							</Button>
+						</div>
+					) : null}
+					<ListSearchBar
+						value={searchDraft}
+						options={userSearchOptions}
+						placeholder={searchDraft.field === "uid" ? "搜索 UID" : "搜索姓名"}
+						onChange={setSearchDraft}
+						onSearch={() => {
+							setSearch({
+								field: searchDraft.field,
+								query: searchDraft.query.trim(),
+							});
+							setSelectedIds([]);
+							resetSelectionAnchor();
+						}}
+					/>
+				</div>
+				<Select
+					value={sortBy}
+					onValueChange={(value) => setSortBy(value as typeof sortBy)}
+				>
+					<SelectTrigger className="w-full sm:w-52">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="uid-asc">UID 从小到大</SelectItem>
+						<SelectItem value="uid-desc">UID 从大到小</SelectItem>
+						<SelectItem value="name-asc">姓名 A-Z</SelectItem>
+						<SelectItem value="name-desc">姓名 Z-A</SelectItem>
+					</SelectContent>
+				</Select>
+			</div>
+			<DataTable
+				columns={columns}
+				data={sortedUsers}
+				pagination={{ pageSize: 50 }}
+			/>
+			{resetResult ? (
+				<UserCredentialsResult
+					autoDownload
+					users={resetResult.users}
+					credentialsCsv={resetResult.credentialsCsv}
+					filename="reset_teachers.csv"
+					summary={`成功重置 ${resetResult.users.length} 个教师的密码。`}
+				/>
+			) : null}
 
-      <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>编辑账号</DialogTitle>
-            <DialogDescription>不需要修改密码时，留空即可。</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Field label="姓名">
-              <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            </Field>
-            <Field label="英文名">
-              <Input value={form.english_name} onChange={(event) => setForm((current) => ({ ...current, english_name: event.target.value }))} />
-            </Field>
-            <Field label="新密码">
-              <Input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
-              <PasswordRequirements password={form.password} isProduction={runtimeConfig.is_production} />
-            </Field>
-            <Button
-              onClick={async () => {
-                if (!editing) return;
+			<Dialog
+				open={Boolean(editing)}
+				onOpenChange={(open) => !open && setEditing(null)}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>编辑账号</DialogTitle>
+						<DialogDescription>不需要修改密码时，留空即可。</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-4">
+						<Field label="姓名">
+							<Input
+								value={form.name}
+								onChange={(event) =>
+									setForm((current) => ({
+										...current,
+										name: event.target.value,
+									}))
+								}
+							/>
+						</Field>
+						<Field label="英文名">
+							<Input
+								value={form.english_name}
+								onChange={(event) =>
+									setForm((current) => ({
+										...current,
+										english_name: event.target.value,
+									}))
+								}
+							/>
+						</Field>
+						<Field label="新密码">
+							<Input
+								type="password"
+								value={form.password}
+								onChange={(event) =>
+									setForm((current) => ({
+										...current,
+										password: event.target.value,
+									}))
+								}
+							/>
+							<PasswordRequirements
+								password={form.password}
+								isProduction={runtimeConfig.is_production}
+							/>
+						</Field>
+						<Button
+							onClick={async () => {
+								if (!editing) return;
 
-                try {
-                  const passwordError = form.password ? validatePlainPassword(form.password, runtimeConfig) : null;
+								try {
+									const passwordError = form.password
+										? validatePlainPassword(form.password, runtimeConfig)
+										: null;
 
-                  if (passwordError) {
-                    toastError(new Error(passwordError));
-                    return;
-                  }
+									if (passwordError) {
+										toastError(new Error(passwordError));
+										return;
+									}
 
-                  await unwrapResponse(createApiClient().admin.users({ id: editing.id }).put({
-                    name: form.name.trim(),
-                    english_name: form.english_name.trim() || null,
-                    password: form.password
-                  }));
-                  setEditing(null);
-                  toastSuccess('账号信息已保存。');
-                  await loadUsers();
-                } catch (error) {
-                  if (error instanceof ApiResponseError && error.status === 401) {
-                    signOut();
-                    return;
-                  }
+									await unwrapResponse(
+										createApiClient()
+											.admin.users({ id: editing.id })
+											.put({
+												name: form.name.trim(),
+												english_name: form.english_name.trim() || null,
+												password: form.password,
+											}),
+									);
+									setEditing(null);
+									toastSuccess("账号信息已保存。");
+									await loadUsers();
+								} catch (error) {
+									if (
+										error instanceof ApiResponseError &&
+										error.status === 401
+									) {
+										signOut();
+										return;
+									}
 
-                  toastError(error, '更新失败。');
-                }
-              }}
-            >
-              保存
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+									toastError(error, "更新失败。");
+								}
+							}}
+						>
+							保存
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
 
-      <ConfirmActionDialog
-        open={batchResetOpen}
-        onOpenChange={setBatchResetOpen}
-        title="确认重置密码"
-        description={`将为选中的 ${selectedIds.length} 个教师生成新密码，并自动下载密码文件。`}
-        confirmLabel="重置密码"
-        loading={resetLoading}
-        onConfirm={async () => {
-          try {
-            setResetLoading(true);
-            const data = await unwrapResponse<CreatedUsersPayload>(
-              createApiClient().admin.users.password.patch({ ids: selectedIds })
-            );
-            setBatchResetOpen(false);
-            setResetResult({ users: data.users, credentialsCsv: data.credentialsCsv });
-            toastSuccess(`已重置 ${data.users.length} 个教师的密码。`);
-          } catch (error) {
-            if (error instanceof ApiResponseError && error.status === 401) {
-              signOut();
-              return;
-            }
+			<ConfirmActionDialog
+				open={batchResetOpen}
+				onOpenChange={setBatchResetOpen}
+				title="确认重置密码"
+				description={`将为选中的 ${selectedIds.length} 个教师生成新密码，并自动下载密码文件。`}
+				confirmLabel="重置密码"
+				loading={resetLoading}
+				onConfirm={async () => {
+					try {
+						setResetLoading(true);
+						const data = await unwrapResponse<CreatedUsersPayload>(
+							createApiClient().admin.users.password.patch({
+								ids: selectedIds,
+							}),
+						);
+						setBatchResetOpen(false);
+						setResetResult({
+							users: data.users,
+							credentialsCsv: data.credentialsCsv,
+						});
+						toastSuccess(`已重置 ${data.users.length} 个教师的密码。`);
+					} catch (error) {
+						if (error instanceof ApiResponseError && error.status === 401) {
+							signOut();
+							return;
+						}
 
-            toastError(error, '重置失败。');
-          } finally {
-            setResetLoading(false);
-          }
-        }}
-      />
+						toastError(error, "重置失败。");
+					} finally {
+						setResetLoading(false);
+					}
+				}}
+			/>
 
-      <ConfirmActionDialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDeleteTarget(null);
-          }
-        }}
-        title="确认删除账号"
-        description={deleteTarget ? `${deleteTarget.name}（${deleteTarget.uid}）的账号将被永久删除。` : ''}
-        confirmLabel="删除"
-        loading={deleteLoading}
-        variant="destructive"
-        onConfirm={async () => {
-          if (!deleteTarget) return;
+			<ConfirmActionDialog
+				open={Boolean(deleteTarget)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDeleteTarget(null);
+					}
+				}}
+				title="确认删除账号"
+				description={
+					deleteTarget
+						? `${deleteTarget.name}（${deleteTarget.uid}）的账号将被永久删除。`
+						: ""
+				}
+				confirmLabel="删除"
+				loading={deleteLoading}
+				variant="destructive"
+				onConfirm={async () => {
+					if (!deleteTarget) return;
 
-          try {
-            setDeleteLoading(true);
-            await unwrapResponse(createApiClient().admin.users({ id: deleteTarget.id }).delete());
-            setDeleteTarget(null);
-            toastSuccess('账号已删除。');
-            await loadUsers();
-          } catch (error) {
-            if (error instanceof ApiResponseError && error.status === 401) {
-              signOut();
-              return;
-            }
+					try {
+						setDeleteLoading(true);
+						await unwrapResponse(
+							createApiClient().admin.users({ id: deleteTarget.id }).delete(),
+						);
+						setDeleteTarget(null);
+						toastSuccess("账号已删除。");
+						await loadUsers();
+					} catch (error) {
+						if (error instanceof ApiResponseError && error.status === 401) {
+							signOut();
+							return;
+						}
 
-            toastError(error, '删除失败。');
-          } finally {
-            setDeleteLoading(false);
-          }
-        }}
-      />
+						toastError(error, "删除失败。");
+					} finally {
+						setDeleteLoading(false);
+					}
+				}}
+			/>
 
-      <ConfirmActionDialog
-        open={batchDeleteOpen}
-        onOpenChange={setBatchDeleteOpen}
-        title="确认批量删除教师账号"
-        description={`选中的 ${selectedIds.length} 个教师账号将被永久删除。`}
-        confirmLabel="删除"
-        loading={deleteLoading}
-        variant="destructive"
-        onConfirm={async () => {
-          try {
-            setDeleteLoading(true);
-            await unwrapResponse(createApiClient().admin.users.delete({ ids: selectedIds }));
-            setBatchDeleteOpen(false);
-            toastSuccess(`已删除 ${selectedIds.length} 个教师账号。`);
-            await loadUsers();
-          } catch (error) {
-            if (error instanceof ApiResponseError && error.status === 401) {
-              signOut();
-              return;
-            }
+			<ConfirmActionDialog
+				open={batchDeleteOpen}
+				onOpenChange={setBatchDeleteOpen}
+				title="确认批量删除教师账号"
+				description={`选中的 ${selectedIds.length} 个教师账号将被永久删除。`}
+				confirmLabel="删除"
+				loading={deleteLoading}
+				variant="destructive"
+				onConfirm={async () => {
+					try {
+						setDeleteLoading(true);
+						await unwrapResponse(
+							createApiClient().admin.users.delete({ ids: selectedIds }),
+						);
+						setBatchDeleteOpen(false);
+						toastSuccess(`已删除 ${selectedIds.length} 个教师账号。`);
+						await loadUsers();
+					} catch (error) {
+						if (error instanceof ApiResponseError && error.status === 401) {
+							signOut();
+							return;
+						}
 
-            toastError(error, '删除失败。');
-          } finally {
-            setDeleteLoading(false);
-          }
-        }}
-      />
-    </AdminPageFrame>
-  );
+						toastError(error, "删除失败。");
+					} finally {
+						setDeleteLoading(false);
+					}
+				}}
+			/>
+		</AdminPageFrame>
+	);
 }

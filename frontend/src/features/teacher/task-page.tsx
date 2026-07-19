@@ -1,534 +1,867 @@
-import { Download, Edit, RefreshCw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef } from "@tanstack/react-table";
+import { Download, Edit, RefreshCw, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
-import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
-import { DataTable } from '@/components/data-table';
-import { DateRangePickerField } from '@/shared/date-picker-field';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
-import { ApiResponseError, createApiClient, unwrapResponse } from '@/lib/api';
-import { useSession } from '@/lib/auth';
-import { toastError, toastSuccess } from '@/lib/feedback';
-import { formatDate, formatDateTime, localDateBoundaryIso } from '@/lib/format';
-import { useRuntimeConfig } from '@/lib/runtime-config';
-import { limitTextLength } from '@/lib/text';
-import type { ClassSummary, PracticeTaskDetail, StudentWithClassSummary, TeacherRecord, TeacherRecordSummary } from '@/lib/types';
-import { cn } from '@/lib/utils';
-import { defaultFilters, Field, PageFrame, RecordPreview, SortButton, StatusBadge, StudentMultiCombobox, toStudentOption, UserMultiCombobox } from './shared';
-import { formToPayload, taskToForm, TaskFormDialog, type TaskFormState } from './task-form';
+import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
+import { DataTable } from "@/components/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import { ApiResponseError, createApiClient, unwrapResponse } from "@/lib/api";
+import { useSession } from "@/lib/auth";
+import { toastError, toastSuccess } from "@/lib/feedback";
+import { formatDate, formatDateTime, localDateBoundaryIso } from "@/lib/format";
+import { useRuntimeConfig } from "@/lib/runtime-config";
+import { limitTextLength } from "@/lib/text";
+import type {
+	ClassSummary,
+	PracticeTaskDetail,
+	StudentWithClassSummary,
+	TeacherRecord,
+	TeacherRecordSummary,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { DateRangePickerField } from "@/shared/date-picker-field";
+import {
+	defaultFilters,
+	Field,
+	PageFrame,
+	RecordPreview,
+	SortButton,
+	StatusBadge,
+	StudentMultiCombobox,
+	toStudentOption,
+	UserMultiCombobox,
+} from "./shared";
+import {
+	formToPayload,
+	TaskFormDialog,
+	type TaskFormState,
+	taskToForm,
+} from "./task-form";
 
 export function TeacherTaskPage() {
-  const { id } = useParams();
-  const taskId = Number(id);
-  const { signOut, user } = useSession();
-  const {
-    client_time_offset_ms: clientOffsetMs,
-    comment_max_length: commentMaxLength
-  } = useRuntimeConfig();
-  const navigate = useNavigate();
-  const basePath = user?.role === 'admin' ? '/admin/tasks' : '/teacher/tasks';
-  const [task, setTask] = useState<PracticeTaskDetail | null>(null);
-  const [classes, setClasses] = useState<ClassSummary[]>([]);
-  const [records, setRecords] = useState<TeacherRecordSummary[]>([]);
-  const [filters, setFilters] = useState(defaultFilters);
-  const [loading, setLoading] = useState(true);
-  const [recordsLoading, setRecordsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [reviewRecord, setReviewRecord] = useState<TeacherRecord | null>(null);
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewScore, setReviewScore] = useState('');
-  const [sortBy, setSortBy] = useState<'created_at_desc' | 'score_desc' | 'score_asc'>('created_at_desc');
-  const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState<TaskFormState | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteRecord, setDeleteRecord] = useState<TeacherRecordSummary | null>(null);
-  const [removeClassTargets, setRemoveClassTargets] = useState<ClassSummary[]>([]);
-  const [removeClassRecordCount, setRemoveClassRecordCount] = useState(0);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportClassIds, setExportClassIds] = useState<number[]>([]);
+	const { id } = useParams();
+	const taskId = Number(id);
+	const { signOut, user } = useSession();
+	const {
+		client_time_offset_ms: clientOffsetMs,
+		comment_max_length: commentMaxLength,
+	} = useRuntimeConfig();
+	const navigate = useNavigate();
+	const basePath = user?.role === "admin" ? "/admin/tasks" : "/teacher/tasks";
+	const [task, setTask] = useState<PracticeTaskDetail | null>(null);
+	const [classes, setClasses] = useState<ClassSummary[]>([]);
+	const [records, setRecords] = useState<TeacherRecordSummary[]>([]);
+	const [filters, setFilters] = useState(defaultFilters);
+	const [loading, setLoading] = useState(true);
+	const [recordsLoading, setRecordsLoading] = useState(false);
+	const [error, setError] = useState("");
+	const [reviewRecord, setReviewRecord] = useState<TeacherRecord | null>(null);
+	const [reviewComment, setReviewComment] = useState("");
+	const [reviewScore, setReviewScore] = useState("");
+	const [sortBy, setSortBy] = useState<
+		"created_at_desc" | "score_desc" | "score_asc"
+	>("created_at_desc");
+	const [formOpen, setFormOpen] = useState(false);
+	const [form, setForm] = useState<TaskFormState | null>(null);
+	const [deleteOpen, setDeleteOpen] = useState(false);
+	const [deleteRecord, setDeleteRecord] = useState<TeacherRecordSummary | null>(
+		null,
+	);
+	const [removeClassTargets, setRemoveClassTargets] = useState<ClassSummary[]>(
+		[],
+	);
+	const [removeClassRecordCount, setRemoveClassRecordCount] = useState(0);
+	const [exportOpen, setExportOpen] = useState(false);
+	const [exportClassIds, setExportClassIds] = useState<number[]>([]);
 
-  async function loadTask() {
-    if (!Number.isInteger(taskId)) return;
-    setLoading(true);
-    setError('');
+	async function loadTask() {
+		if (!Number.isInteger(taskId)) return;
+		setLoading(true);
+		setError("");
 
-    try {
-      const api = createApiClient();
-      const [taskData, classData] = await Promise.all([
-        unwrapResponse<{ task: PracticeTaskDetail }>(api.teacher.tasks({ id: taskId }).get()),
-        unwrapResponse<{ classes: ClassSummary[] }>(api.teacher.classes.get())
-      ]);
-      setTask(taskData.task);
-      setClasses(classData.classes);
-    } catch (nextError) {
-      if (nextError instanceof ApiResponseError && nextError.status === 401) {
-        signOut();
-        return;
-      }
-      setError(nextError instanceof Error ? nextError.message : '加载任务失败。');
-    } finally {
-      setLoading(false);
-    }
-  }
+		try {
+			const api = createApiClient();
+			const [taskData, classData] = await Promise.all([
+				unwrapResponse<{ task: PracticeTaskDetail }>(
+					api.teacher.tasks({ id: taskId }).get(),
+				),
+				unwrapResponse<{ classes: ClassSummary[] }>(api.teacher.classes.get()),
+			]);
+			setTask(taskData.task);
+			setClasses(classData.classes);
+		} catch (nextError) {
+			if (nextError instanceof ApiResponseError && nextError.status === 401) {
+				signOut();
+				return;
+			}
+			setError(
+				nextError instanceof Error ? nextError.message : "加载任务失败。",
+			);
+		} finally {
+			setLoading(false);
+		}
+	}
 
-  async function loadRecords() {
-    if (!Number.isInteger(taskId)) return;
-    setRecordsLoading(true);
+	async function loadRecords() {
+		if (!Number.isInteger(taskId)) return;
+		setRecordsLoading(true);
 
-    try {
-      const data = await unwrapResponse<{ records: TeacherRecordSummary[] }>(createApiClient().teacher.records.get({
-        query: {
-          task_id: String(taskId),
-          student_ids: filters.student_ids.length > 0 ? filters.student_ids.join(',') : undefined,
-          class_ids: filters.class_ids.length > 0 ? filters.class_ids.join(',') : undefined,
-          status: filters.status ? (filters.status as 'approved' | 'pending' | 'rejected') : undefined,
-          practice_after: filters.practice_after || undefined,
-          practice_before: filters.practice_before || undefined,
-          created_after: filters.created_after ? localDateBoundaryIso(filters.created_after, 'start', clientOffsetMs) : undefined,
-          created_before: filters.created_before ? localDateBoundaryIso(filters.created_before, 'end', clientOffsetMs) : undefined,
-          sort: sortBy
-        }
-      }));
-      setRecords(data.records);
-    } catch (nextError) {
-      if (nextError instanceof ApiResponseError && nextError.status === 401) {
-        signOut();
-        return;
-      }
-      toastError(nextError, '加载记录失败。');
-    } finally {
-      setRecordsLoading(false);
-    }
-  }
+		try {
+			const data = await unwrapResponse<{ records: TeacherRecordSummary[] }>(
+				createApiClient().teacher.records.get({
+					query: {
+						task_id: String(taskId),
+						student_ids:
+							filters.student_ids.length > 0
+								? filters.student_ids.join(",")
+								: undefined,
+						class_ids:
+							filters.class_ids.length > 0
+								? filters.class_ids.join(",")
+								: undefined,
+						status: filters.status
+							? (filters.status as "approved" | "pending" | "rejected")
+							: undefined,
+						practice_after: filters.practice_after || undefined,
+						practice_before: filters.practice_before || undefined,
+						created_after: filters.created_after
+							? localDateBoundaryIso(
+									filters.created_after,
+									"start",
+									clientOffsetMs,
+								)
+							: undefined,
+						created_before: filters.created_before
+							? localDateBoundaryIso(
+									filters.created_before,
+									"end",
+									clientOffsetMs,
+								)
+							: undefined,
+						sort: sortBy,
+					},
+				}),
+			);
+			setRecords(data.records);
+		} catch (nextError) {
+			if (nextError instanceof ApiResponseError && nextError.status === 401) {
+				signOut();
+				return;
+			}
+			toastError(nextError, "加载记录失败。");
+		} finally {
+			setRecordsLoading(false);
+		}
+	}
 
-  useEffect(() => {
-    void loadTask();
-  }, [taskId]);
+	useEffect(() => {
+		void loadTask();
+	}, [taskId]);
 
-  useEffect(() => {
-    void loadRecords();
-  }, [taskId, filters, sortBy, clientOffsetMs]);
+	useEffect(() => {
+		void loadRecords();
+	}, [taskId, filters, sortBy, clientOffsetMs]);
 
-  const loadClassOptions = useCallback(async (query: string) => {
-    const normalized = query.trim().toLowerCase();
-    return classes
-      .filter((item) => !normalized || item.name.toLowerCase().includes(normalized))
-      .map((item) => ({ label: item.name, value: String(item.id) }));
-  }, [classes]);
+	const loadClassOptions = useCallback(
+		async (query: string) => {
+			const normalized = query.trim().toLowerCase();
+			return classes
+				.filter(
+					(item) => !normalized || item.name.toLowerCase().includes(normalized),
+				)
+				.map((item) => ({ label: item.name, value: String(item.id) }));
+		},
+		[classes],
+	);
 
-  const searchStudents = useCallback(async (query: string) => {
-    try {
-      const data = await unwrapResponse<{ students: StudentWithClassSummary[] }>(createApiClient().teacher.students.search({
-        query: {
-          q: query.trim() || undefined,
-          class_ids: filters.class_ids.length > 0 ? filters.class_ids.join(',') : task?.classes.map((item) => item.id).join(',')
-        }
-      }));
-      return data.students.map(toStudentOption);
-    } catch {
-      return [];
-    }
-  }, [filters.class_ids, task]);
+	const searchStudents = useCallback(
+		async (query: string) => {
+			try {
+				const data = await unwrapResponse<{
+					students: StudentWithClassSummary[];
+				}>(
+					createApiClient().teacher.students.search({
+						query: {
+							q: query.trim() || undefined,
+							class_ids:
+								filters.class_ids.length > 0
+									? filters.class_ids.join(",")
+									: task?.classes.map((item) => item.id).join(","),
+						},
+					}),
+				);
+				return data.students.map(toStudentOption);
+			} catch {
+				return [];
+			}
+		},
+		[filters.class_ids, task],
+	);
 
-  const columns = useMemo<Array<ColumnDef<TeacherRecordSummary>>>(() => {
-    const baseColumns: Array<ColumnDef<TeacherRecordSummary>> = [
-      {
-        accessorKey: 'student_name',
-        header: '学生',
-        meta: {
-          headClassName: 'px-4',
-          cellClassName: 'px-4'
-        },
-        cell: ({ row }) => (
-          <div>
-            <p className="font-medium">{row.original.student_name}</p>
-            <p className="text-xs text-muted-foreground">{row.original.student_english_name || '-'}</p>
-          </div>
-        )
-      },
-      {
-        accessorKey: 'title',
-        header: '标题',
-        meta: {
-          headClassName: 'min-w-0 px-4',
-          cellClassName: 'min-w-0 px-4'
-        },
-        cell: ({ row }) => (
-          <div className="w-full truncate" title={row.original.title}>
-            {row.original.title}
-          </div>
-        )
-      },
-      {
-        accessorKey: 'practice_date',
-        header: '实践日期',
-        meta: {
-          headClassName: 'px-4',
-          cellClassName: 'px-4'
-        },
-        cell: ({ row }) => formatDate(row.original.practice_date)
-      },
-      {
-        accessorKey: 'status',
-        header: '状态',
-        meta: {
-          headClassName: 'px-4',
-          cellClassName: 'px-4'
-        },
-        cell: ({ row }) => <StatusBadge status={row.original.status} />
-      }
-    ];
+	const columns = useMemo<Array<ColumnDef<TeacherRecordSummary>>>(() => {
+		const baseColumns: Array<ColumnDef<TeacherRecordSummary>> = [
+			{
+				accessorKey: "student_name",
+				header: "学生",
+				meta: {
+					headClassName: "px-4",
+					cellClassName: "px-4",
+				},
+				cell: ({ row }) => (
+					<div>
+						<p className="font-medium">{row.original.student_name}</p>
+						<p className="text-xs text-muted-foreground">
+							{row.original.student_english_name || "-"}
+						</p>
+					</div>
+				),
+			},
+			{
+				accessorKey: "title",
+				header: "标题",
+				meta: {
+					headClassName: "min-w-0 px-4",
+					cellClassName: "min-w-0 px-4",
+				},
+				cell: ({ row }) => (
+					<div className="w-full truncate" title={row.original.title}>
+						{row.original.title}
+					</div>
+				),
+			},
+			{
+				accessorKey: "practice_date",
+				header: "实践日期",
+				meta: {
+					headClassName: "px-4",
+					cellClassName: "px-4",
+				},
+				cell: ({ row }) => formatDate(row.original.practice_date),
+			},
+			{
+				accessorKey: "status",
+				header: "状态",
+				meta: {
+					headClassName: "px-4",
+					cellClassName: "px-4",
+				},
+				cell: ({ row }) => <StatusBadge status={row.original.status} />,
+			},
+		];
 
-    if (task?.score_enabled) {
-      baseColumns.push({
-        accessorKey: 'score',
-        meta: {
-          headClassName: 'px-4',
-          cellClassName: 'px-4'
-        },
-        header: () => (
-          <SortButton
-            active={sortBy === 'score_desc' || sortBy === 'score_asc'}
-            descending={sortBy === 'score_desc'}
-            label="分数"
-            onClick={() => setSortBy((current) => current === 'score_desc' ? 'score_asc' : 'score_desc')}
-          />
-        ),
-        cell: ({ row }) => row.original.score ?? '-'
-      });
-    }
+		if (task?.score_enabled) {
+			baseColumns.push({
+				accessorKey: "score",
+				meta: {
+					headClassName: "px-4",
+					cellClassName: "px-4",
+				},
+				header: () => (
+					<SortButton
+						active={sortBy === "score_desc" || sortBy === "score_asc"}
+						descending={sortBy === "score_desc"}
+						label="分数"
+						onClick={() =>
+							setSortBy((current) =>
+								current === "score_desc" ? "score_asc" : "score_desc",
+							)
+						}
+					/>
+				),
+				cell: ({ row }) => row.original.score ?? "-",
+			});
+		}
 
-    baseColumns.push(
-      {
-        accessorKey: 'created_at',
-        meta: {
-          headClassName: 'px-4',
-          cellClassName: 'px-4'
-        },
-        header: () => (
-          <SortButton
-            active={sortBy === 'created_at_desc'}
-            descending
-            label="提交时间"
-            onClick={() => setSortBy('created_at_desc')}
-          />
-        ),
-        cell: ({ row }) => formatDateTime(row.original.created_at, '-', clientOffsetMs)
-      },
-      {
-        id: 'actions',
-        header: '操作',
-        meta: {
-          headClassName: 'px-4',
-          cellClassName: 'px-4'
-        },
-        cell: ({ row }) => (
-          <div className="inline-flex gap-2">
-            <Button size="sm" onClick={async () => {
-              const data = await unwrapResponse<{ record: TeacherRecord }>(createApiClient().teacher.records({ id: row.original.id }).get());
-              setReviewRecord(data.record);
-              setReviewComment(data.record.teacher_comment ?? '');
-              setReviewScore(data.record.score === null ? '' : String(data.record.score));
-            }}>审批</Button>
-            <Button size="sm" variant="outline" onClick={() => navigate(`${basePath}/${taskId}/records/${row.original.id}/edit`)}>
-              修改
-            </Button>
-            <Button size="sm" variant="destructive" onClick={() => setDeleteRecord(row.original)}>
-              删除
-            </Button>
-          </div>
-        )
-      }
-    );
+		baseColumns.push(
+			{
+				accessorKey: "created_at",
+				meta: {
+					headClassName: "px-4",
+					cellClassName: "px-4",
+				},
+				header: () => (
+					<SortButton
+						active={sortBy === "created_at_desc"}
+						descending
+						label="提交时间"
+						onClick={() => setSortBy("created_at_desc")}
+					/>
+				),
+				cell: ({ row }) =>
+					formatDateTime(row.original.created_at, "-", clientOffsetMs),
+			},
+			{
+				id: "actions",
+				header: "操作",
+				meta: {
+					headClassName: "px-4",
+					cellClassName: "px-4",
+				},
+				cell: ({ row }) => (
+					<div className="inline-flex gap-2">
+						<Button
+							size="sm"
+							onClick={async () => {
+								const data = await unwrapResponse<{ record: TeacherRecord }>(
+									createApiClient()
+										.teacher.records({ id: row.original.id })
+										.get(),
+								);
+								setReviewRecord(data.record);
+								setReviewComment(data.record.teacher_comment ?? "");
+								setReviewScore(
+									data.record.score === null ? "" : String(data.record.score),
+								);
+							}}
+						>
+							审批
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() =>
+								navigate(
+									`${basePath}/${taskId}/records/${row.original.id}/edit`,
+								)
+							}
+						>
+							修改
+						</Button>
+						<Button
+							size="sm"
+							variant="destructive"
+							onClick={() => setDeleteRecord(row.original)}
+						>
+							删除
+						</Button>
+					</div>
+				),
+			},
+		);
 
-    return baseColumns;
-  }, [sortBy, task?.score_enabled, clientOffsetMs, navigate, basePath, taskId]);
+		return baseColumns;
+	}, [sortBy, task?.score_enabled, clientOffsetMs, navigate, basePath, taskId]);
 
-  return (
-    <PageFrame
-      title={task?.title ?? '任务详情'}
-      action={task ? (
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => { void loadTask(); void loadRecords(); }}><RefreshCw className="size-4" />刷新</Button>
-          <Button variant="outline" onClick={() => { setForm(taskToForm(task, clientOffsetMs)); setFormOpen(true); }}><Edit className="size-4" />编辑</Button>
-          <Button variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 className="size-4" />删除</Button>
-        </div>
-      ) : null}
-    >
-      {loading ? (
-        <TaskPageLoading label="正在加载任务..." />
-      ) : error ? (
-        <TaskPageError message={error} onRetry={() => void loadTask()} />
-      ) : task ? (
-        <div className="space-y-8">
-          <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-            <div className="min-w-0 space-y-6">
-              {task.description ? (
-                <div className="space-y-2">
-                  <h2 className="text-sm font-semibold">任务简介</h2>
-                  <p className="max-w-5xl whitespace-pre-wrap text-sm leading-7 text-foreground/90">{task.description}</p>
-                </div>
-              ) : null}
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-semibold">覆盖班级</h2>
-                  <Badge variant="outline">{task.classes.length} 个班级</Badge>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {task.classes.map((item) => (
-                    <Badge key={item.id} variant="secondary" className="max-w-full truncate rounded-md px-2.5 py-1 text-sm font-normal">
-                      {item.name}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <dl className="grid content-start gap-4 rounded-2xl bg-muted/30 p-4 sm:grid-cols-3 lg:grid-cols-1">
-              <TaskMeta label="开始时间" value={formatDateTime(task.start_at, '-', clientOffsetMs)} />
-              <TaskMeta label="截止时间" value={formatDateTime(task.end_at, '-', clientOffsetMs)} />
-            </dl>
-          </section>
+	return (
+		<PageFrame
+			title={task?.title ?? "任务详情"}
+			action={
+				task ? (
+					<div className="flex flex-wrap gap-2">
+						<Button
+							variant="secondary"
+							onClick={() => {
+								void loadTask();
+								void loadRecords();
+							}}
+						>
+							<RefreshCw className="size-4" />
+							刷新
+						</Button>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setForm(taskToForm(task, clientOffsetMs));
+								setFormOpen(true);
+							}}
+						>
+							<Edit className="size-4" />
+							编辑
+						</Button>
+						<Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+							<Trash2 className="size-4" />
+							删除
+						</Button>
+					</div>
+				) : null
+			}
+		>
+			{loading ? (
+				<TaskPageLoading label="正在加载任务..." />
+			) : error ? (
+				<TaskPageError message={error} onRetry={() => void loadTask()} />
+			) : task ? (
+				<div className="space-y-8">
+					<section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
+						<div className="min-w-0 space-y-6">
+							{task.description ? (
+								<div className="space-y-2">
+									<h2 className="text-sm font-semibold">任务简介</h2>
+									<p className="max-w-5xl whitespace-pre-wrap text-sm leading-7 text-foreground/90">
+										{task.description}
+									</p>
+								</div>
+							) : null}
+							<div className="space-y-3">
+								<div className="flex flex-wrap items-center gap-2">
+									<h2 className="text-sm font-semibold">覆盖班级</h2>
+									<Badge variant="outline">{task.classes.length} 个班级</Badge>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									{task.classes.map((item) => (
+										<Badge
+											key={item.id}
+											variant="secondary"
+											className="max-w-full truncate rounded-md px-2.5 py-1 text-sm font-normal"
+										>
+											{item.name}
+										</Badge>
+									))}
+								</div>
+							</div>
+						</div>
+						<dl className="grid content-start gap-4 rounded-2xl bg-muted/30 p-4 sm:grid-cols-3 lg:grid-cols-1">
+							<TaskMeta
+								label="开始时间"
+								value={formatDateTime(task.start_at, "-", clientOffsetMs)}
+							/>
+							<TaskMeta
+								label="截止时间"
+								value={formatDateTime(task.end_at, "-", clientOffsetMs)}
+							/>
+						</dl>
+					</section>
 
-          <section className="space-y-4 border-t pt-6">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-bold">记录列表</h2>
-                <Badge variant="outline">{records.length} 条</Badge>
-              </div>
-              <Button size="sm" variant="secondary" onClick={() => { setExportClassIds([]); setExportOpen(true); }}><Download className="size-4" />导出</Button>
-            </div>
-            <fieldset className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <legend className="sr-only">筛选记录</legend>
-              <UserMultiCombobox label="班级" value={filters.class_ids} loadOptions={loadClassOptions} onChange={(value) => setFilters((current) => ({ ...current, class_ids: value, student_ids: [] }))} />
-              <StudentMultiCombobox label="学生" value={filters.student_ids} loadOptions={searchStudents} onChange={(value) => setFilters((current) => ({ ...current, student_ids: value }))} />
-              <Field label="状态">
-                <Select value={filters.status || '__all__'} onValueChange={(value) => setFilters((current) => ({ ...current, status: value === '__all__' ? '' : value }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">全部状态</SelectItem>
-                    <SelectItem value="pending">待审核</SelectItem>
-                    <SelectItem value="approved">已通过</SelectItem>
-                    <SelectItem value="rejected">已驳回</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="实践日期范围">
-                <DateRangePickerField
-                  value={{ from: filters.practice_after, to: filters.practice_before }}
-                  onChange={(value) => setFilters((current) => ({ ...current, practice_after: value.from, practice_before: value.to }))}
-                />
-              </Field>
-              <Field label="提交日期范围">
-                <DateRangePickerField
-                  value={{ from: filters.created_after, to: filters.created_before }}
-                  onChange={(value) => setFilters((current) => ({ ...current, created_after: value.from, created_before: value.to }))}
-                />
-              </Field>
-            </fieldset>
-            {recordsLoading ? (
-              <TaskPageLoading compact label="正在加载记录..." />
-            ) : (
-              <DataTable className="rounded-2xl bg-background ring-border/70" columns={columns} data={records} pagination={{ pageSize: 50 }} />
-            )}
-          </section>
-        </div>
-      ) : null}
+					<section className="space-y-4 border-t pt-6">
+						<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+							<div className="flex flex-wrap items-center gap-2">
+								<h2 className="text-base font-bold">记录列表</h2>
+								<Badge variant="outline">{records.length} 条</Badge>
+							</div>
+							<Button
+								size="sm"
+								variant="secondary"
+								onClick={() => {
+									setExportClassIds([]);
+									setExportOpen(true);
+								}}
+							>
+								<Download className="size-4" />
+								导出
+							</Button>
+						</div>
+						<fieldset className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+							<legend className="sr-only">筛选记录</legend>
+							<UserMultiCombobox
+								label="班级"
+								value={filters.class_ids}
+								loadOptions={loadClassOptions}
+								onChange={(value) =>
+									setFilters((current) => ({
+										...current,
+										class_ids: value,
+										student_ids: [],
+									}))
+								}
+							/>
+							<StudentMultiCombobox
+								label="学生"
+								value={filters.student_ids}
+								loadOptions={searchStudents}
+								onChange={(value) =>
+									setFilters((current) => ({ ...current, student_ids: value }))
+								}
+							/>
+							<Field label="状态">
+								<Select
+									value={filters.status || "__all__"}
+									onValueChange={(value) =>
+										setFilters((current) => ({
+											...current,
+											status: value === "__all__" ? "" : value,
+										}))
+									}
+								>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="__all__">全部状态</SelectItem>
+										<SelectItem value="pending">待审核</SelectItem>
+										<SelectItem value="approved">已通过</SelectItem>
+										<SelectItem value="rejected">已驳回</SelectItem>
+									</SelectContent>
+								</Select>
+							</Field>
+							<Field label="实践日期范围">
+								<DateRangePickerField
+									value={{
+										from: filters.practice_after,
+										to: filters.practice_before,
+									}}
+									onChange={(value) =>
+										setFilters((current) => ({
+											...current,
+											practice_after: value.from,
+											practice_before: value.to,
+										}))
+									}
+								/>
+							</Field>
+							<Field label="提交日期范围">
+								<DateRangePickerField
+									value={{
+										from: filters.created_after,
+										to: filters.created_before,
+									}}
+									onChange={(value) =>
+										setFilters((current) => ({
+											...current,
+											created_after: value.from,
+											created_before: value.to,
+										}))
+									}
+								/>
+							</Field>
+						</fieldset>
+						{recordsLoading ? (
+							<TaskPageLoading compact label="正在加载记录..." />
+						) : (
+							<DataTable
+								className="rounded-2xl bg-background ring-border/70"
+								columns={columns}
+								data={records}
+								pagination={{ pageSize: 50 }}
+							/>
+						)}
+					</section>
+				</div>
+			) : null}
 
-      {form && task ? (
-        <TaskFormDialog
-          open={formOpen}
-          title="编辑任务"
-          classes={classes}
-          form={form}
-          clientOffsetMs={clientOffsetMs}
-          onOpenChange={setFormOpen}
-          onFormChange={setForm}
-          lockedClassIds={task.classes.map((item) => item.id)}
-          onRemoveClassRequest={async (targetClasses) => {
-            if (!task) return;
-            const counts = await Promise.all(targetClasses.map(async (targetClass) => {
-              const data = await unwrapResponse<{ count: number }>(createApiClient().teacher.tasks({ id: task.id }).classes({ classId: targetClass.id }).recordCount.get());
-              return data.count;
-            }));
-            setRemoveClassTargets(targetClasses);
-            setRemoveClassRecordCount(counts.reduce((sum, count) => sum + count, 0));
-          }}
-          onSubmit={async () => {
-            if (!task) return;
-            try {
-              const { score_enabled: _scoreEnabled, ...payload } = formToPayload(form, clientOffsetMs);
-              await unwrapResponse(createApiClient().teacher.tasks({ id: task.id }).put(payload));
-              toastSuccess('任务已更新。');
-              setFormOpen(false);
-              await loadTask();
-            } catch (nextError) {
-              if (nextError instanceof ApiResponseError && nextError.status === 401) {
-                signOut();
-                return;
-              }
-              toastError(nextError, '保存失败。');
-            }
-          }}
-        />
-      ) : null}
+			{form && task ? (
+				<TaskFormDialog
+					open={formOpen}
+					title="编辑任务"
+					classes={classes}
+					form={form}
+					clientOffsetMs={clientOffsetMs}
+					onOpenChange={setFormOpen}
+					onFormChange={setForm}
+					lockedClassIds={task.classes.map((item) => item.id)}
+					onRemoveClassRequest={async (targetClasses) => {
+						if (!task) return;
+						const counts = await Promise.all(
+							targetClasses.map(async (targetClass) => {
+								const data = await unwrapResponse<{ count: number }>(
+									createApiClient()
+										.teacher.tasks({ id: task.id })
+										.classes({ classId: targetClass.id })
+										.recordCount.get(),
+								);
+								return data.count;
+							}),
+						);
+						setRemoveClassTargets(targetClasses);
+						setRemoveClassRecordCount(
+							counts.reduce((sum, count) => sum + count, 0),
+						);
+					}}
+					onSubmit={async () => {
+						if (!task) return;
+						try {
+							const { score_enabled: _scoreEnabled, ...payload } =
+								formToPayload(form, clientOffsetMs);
+							await unwrapResponse(
+								createApiClient().teacher.tasks({ id: task.id }).put(payload),
+							);
+							toastSuccess("任务已更新。");
+							setFormOpen(false);
+							await loadTask();
+						} catch (nextError) {
+							if (
+								nextError instanceof ApiResponseError &&
+								nextError.status === 401
+							) {
+								signOut();
+								return;
+							}
+							toastError(nextError, "保存失败。");
+						}
+					}}
+				/>
+			) : null}
 
-      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>导出记录</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <UserMultiCombobox label="导出班级" value={exportClassIds} loadOptions={loadClassOptions} onChange={setExportClassIds} />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setExportOpen(false)}>取消</Button>
-              <Button onClick={async () => {
-                if (!task) return;
-                if (exportClassIds.length === 0) {
-                  toastError(new Error('导出班级不可为空。'));
-                  return;
-                }
-                const response = await createApiClient().teacher.tasks({ id: task.id }).export.post({ class_ids: exportClassIds });
-                if (response.error) throw new ApiResponseError(response.status, '导出失败。');
-                const url = URL.createObjectURL(new Blob([response.data as string], { type: 'text/csv;charset=utf-8' }));
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `${task.title}.csv`;
-                link.click();
-                URL.revokeObjectURL(url);
-                setExportOpen(false);
-              }}>导出</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+			<Dialog open={exportOpen} onOpenChange={setExportOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>导出记录</DialogTitle>
+					</DialogHeader>
+					<div className="space-y-4">
+						<UserMultiCombobox
+							label="导出班级"
+							value={exportClassIds}
+							loadOptions={loadClassOptions}
+							onChange={setExportClassIds}
+						/>
+						<div className="flex justify-end gap-2">
+							<Button variant="ghost" onClick={() => setExportOpen(false)}>
+								取消
+							</Button>
+							<Button
+								onClick={async () => {
+									if (!task) return;
+									if (exportClassIds.length === 0) {
+										toastError(new Error("导出班级不可为空。"));
+										return;
+									}
+									const response = await createApiClient()
+										.teacher.tasks({ id: task.id })
+										.export.post({ class_ids: exportClassIds });
+									if (response.error)
+										throw new ApiResponseError(response.status, "导出失败。");
+									const url = URL.createObjectURL(
+										new Blob([response.data as string], {
+											type: "text/csv;charset=utf-8",
+										}),
+									);
+									const link = document.createElement("a");
+									link.href = url;
+									link.download = `${task.title}.csv`;
+									link.click();
+									URL.revokeObjectURL(url);
+									setExportOpen(false);
+								}}
+							>
+								导出
+							</Button>
+						</div>
+					</div>
+				</DialogContent>
+			</Dialog>
 
-      <ConfirmActionDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="确认删除任务"
-        description="任务下的全部记录也会被永久删除。"
-        confirmLabel="删除"
-        variant="destructive"
-        onConfirm={async () => {
-          if (!task) return;
-          await unwrapResponse(createApiClient().teacher.tasks({ id: task.id }).delete());
-          navigate(basePath, { replace: true });
-        }}
-      />
+			<ConfirmActionDialog
+				open={deleteOpen}
+				onOpenChange={setDeleteOpen}
+				title="确认删除任务"
+				description="任务下的全部记录也会被永久删除。"
+				confirmLabel="删除"
+				variant="destructive"
+				onConfirm={async () => {
+					if (!task) return;
+					await unwrapResponse(
+						createApiClient().teacher.tasks({ id: task.id }).delete(),
+					);
+					navigate(basePath, { replace: true });
+				}}
+			/>
 
-      <ConfirmActionDialog
-        open={Boolean(deleteRecord)}
-        onOpenChange={(open) => !open && setDeleteRecord(null)}
-        title="确认删除记录"
-        description={deleteRecord ? `记录 "${deleteRecord.title}" 会被永久删除。` : ''}
-        confirmLabel="删除"
-        variant="destructive"
-        onConfirm={async () => {
-          if (!deleteRecord) return;
-          await unwrapResponse(createApiClient().teacher.records({ id: deleteRecord.id }).delete());
-          setDeleteRecord(null);
-          await loadRecords();
-        }}
-      />
+			<ConfirmActionDialog
+				open={Boolean(deleteRecord)}
+				onOpenChange={(open) => !open && setDeleteRecord(null)}
+				title="确认删除记录"
+				description={
+					deleteRecord ? `记录 "${deleteRecord.title}" 会被永久删除。` : ""
+				}
+				confirmLabel="删除"
+				variant="destructive"
+				onConfirm={async () => {
+					if (!deleteRecord) return;
+					await unwrapResponse(
+						createApiClient().teacher.records({ id: deleteRecord.id }).delete(),
+					);
+					setDeleteRecord(null);
+					await loadRecords();
+				}}
+			/>
 
-      <ConfirmActionDialog
-        open={removeClassTargets.length > 0}
-        onOpenChange={(open) => !open && setRemoveClassTargets([])}
-        title="确认移除班级"
-        description={removeClassTargets.length > 0 ? `这 ${removeClassTargets.length} 个班级在该任务下的 ${removeClassRecordCount} 条记录也会被永久删除。` : ''}
-        confirmLabel="删除"
-        variant="destructive"
-        onConfirm={async () => {
-          if (!task || removeClassTargets.length === 0) return;
-          for (const targetClass of removeClassTargets) {
-            await unwrapResponse(createApiClient().teacher.tasks({ id: task.id }).classes({ classId: targetClass.id }).delete());
-          }
-          const removedClassIds = new Set(removeClassTargets.map((item) => item.id));
-          setForm((current) => current ? {
-            ...current,
-            class_ids: current.class_ids.filter((classId) => !removedClassIds.has(classId))
-          } : current);
-          setRemoveClassTargets([]);
-          setRemoveClassRecordCount(0);
-          await loadTask();
-          await loadRecords();
-        }}
-      />
+			<ConfirmActionDialog
+				open={removeClassTargets.length > 0}
+				onOpenChange={(open) => !open && setRemoveClassTargets([])}
+				title="确认移除班级"
+				description={
+					removeClassTargets.length > 0
+						? `这 ${removeClassTargets.length} 个班级在该任务下的 ${removeClassRecordCount} 条记录也会被永久删除。`
+						: ""
+				}
+				confirmLabel="删除"
+				variant="destructive"
+				onConfirm={async () => {
+					if (!task || removeClassTargets.length === 0) return;
+					for (const targetClass of removeClassTargets) {
+						await unwrapResponse(
+							createApiClient()
+								.teacher.tasks({ id: task.id })
+								.classes({ classId: targetClass.id })
+								.delete(),
+						);
+					}
+					const removedClassIds = new Set(
+						removeClassTargets.map((item) => item.id),
+					);
+					setForm((current) =>
+						current
+							? {
+									...current,
+									class_ids: current.class_ids.filter(
+										(classId) => !removedClassIds.has(classId),
+									),
+								}
+							: current,
+					);
+					setRemoveClassTargets([]);
+					setRemoveClassRecordCount(0);
+					await loadTask();
+					await loadRecords();
+				}}
+			/>
 
-      <Dialog open={Boolean(reviewRecord)} onOpenChange={(open) => !open && setReviewRecord(null)}>
-        <DialogContent>
-          {reviewRecord ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>{reviewRecord.title}</DialogTitle>
-                <DialogDescription>学生：{reviewRecord.student_name}（{reviewRecord.student_english_name || '-'}）</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <RecordPreview record={reviewRecord} />
-                <Field label="评语"><Textarea value={reviewComment} onChange={(event) => setReviewComment(limitTextLength(event.target.value, commentMaxLength))} /></Field>
-                {task?.score_enabled ? (
-                  <Field label="分数"><Input type="number" min="0" max="100" step="1" value={reviewScore} onChange={(event) => setReviewScore(event.target.value)} /></Field>
-                ) : null}
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" onClick={async () => {
-                    if (!reviewRecord) return;
-                    await unwrapResponse(createApiClient().teacher.records({ id: reviewRecord.id }).review.put({ status: 'rejected', comment: reviewComment }));
-                    setReviewRecord(null);
-                    await loadRecords();
-                  }}>驳回</Button>
-                  <Button onClick={async () => {
-                    if (!reviewRecord) return;
-                    const score = Number(reviewScore);
-                    if (task?.score_enabled && (reviewScore.trim() === '' || !Number.isInteger(score) || score < 0 || score > 100)) {
-                      toastError(new Error('分数必须是 0 到 100 的整数。'));
-                      return;
-                    }
-                    await unwrapResponse(createApiClient().teacher.records({ id: reviewRecord.id }).review.put({
-                      status: 'approved',
-                      comment: reviewComment,
-                      ...(task?.score_enabled ? { score } : {})
-                    }));
-                    setReviewRecord(null);
-                    await loadRecords();
-                  }}>通过</Button>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-    </PageFrame>
-  );
+			<Dialog
+				open={Boolean(reviewRecord)}
+				onOpenChange={(open) => !open && setReviewRecord(null)}
+			>
+				<DialogContent>
+					{reviewRecord ? (
+						<>
+							<DialogHeader>
+								<DialogTitle>{reviewRecord.title}</DialogTitle>
+								<DialogDescription>
+									学生：{reviewRecord.student_name}（
+									{reviewRecord.student_english_name || "-"}）
+								</DialogDescription>
+							</DialogHeader>
+							<div className="space-y-4">
+								<RecordPreview record={reviewRecord} />
+								<Field label="评语">
+									<Textarea
+										value={reviewComment}
+										onChange={(event) =>
+											setReviewComment(
+												limitTextLength(event.target.value, commentMaxLength),
+											)
+										}
+									/>
+								</Field>
+								{task?.score_enabled ? (
+									<Field label="分数">
+										<Input
+											type="number"
+											min="0"
+											max="100"
+											step="1"
+											value={reviewScore}
+											onChange={(event) => setReviewScore(event.target.value)}
+										/>
+									</Field>
+								) : null}
+								<div className="flex flex-wrap justify-end gap-2">
+									<Button
+										variant="outline"
+										onClick={async () => {
+											if (!reviewRecord) return;
+											await unwrapResponse(
+												createApiClient()
+													.teacher.records({ id: reviewRecord.id })
+													.review.put({
+														status: "rejected",
+														comment: reviewComment,
+													}),
+											);
+											setReviewRecord(null);
+											await loadRecords();
+										}}
+									>
+										驳回
+									</Button>
+									<Button
+										onClick={async () => {
+											if (!reviewRecord) return;
+											const score = Number(reviewScore);
+											if (
+												task?.score_enabled &&
+												(reviewScore.trim() === "" ||
+													!Number.isInteger(score) ||
+													score < 0 ||
+													score > 100)
+											) {
+												toastError(new Error("分数必须是 0 到 100 的整数。"));
+												return;
+											}
+											await unwrapResponse(
+												createApiClient()
+													.teacher.records({ id: reviewRecord.id })
+													.review.put({
+														status: "approved",
+														comment: reviewComment,
+														...(task?.score_enabled ? { score } : {}),
+													}),
+											);
+											setReviewRecord(null);
+											await loadRecords();
+										}}
+									>
+										通过
+									</Button>
+								</div>
+							</div>
+						</>
+					) : null}
+				</DialogContent>
+			</Dialog>
+		</PageFrame>
+	);
 }
 
 function TaskMeta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="mt-1 truncate text-sm font-semibold">{value}</dd>
-    </div>
-  );
+	return (
+		<div className="min-w-0">
+			<dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+			<dd className="mt-1 truncate text-sm font-semibold">{value}</dd>
+		</div>
+	);
 }
 
-function TaskPageLoading({ label, compact = false }: { label: string; compact?: boolean }) {
-  return (
-    <div className={cn(compact ? 'min-h-36' : 'min-h-52', 'flex items-center justify-center gap-3 rounded-2xl bg-muted/30 text-sm text-muted-foreground')}>
-      <Spinner />
-      {label}
-    </div>
-  );
+function TaskPageLoading({
+	label,
+	compact = false,
+}: {
+	label: string;
+	compact?: boolean;
+}) {
+	return (
+		<div
+			className={cn(
+				compact ? "min-h-36" : "min-h-52",
+				"flex items-center justify-center gap-3 rounded-2xl bg-muted/30 text-sm text-muted-foreground",
+			)}
+		>
+			<Spinner />
+			{label}
+		</div>
+	);
 }
 
-function TaskPageError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="flex min-h-52 flex-col items-center justify-center gap-4 rounded-2xl bg-muted/30 text-center">
-      <p className="text-sm text-destructive">{message}</p>
-      <Button variant="secondary" onClick={onRetry}>重新加载</Button>
-    </div>
-  );
+function TaskPageError({
+	message,
+	onRetry,
+}: {
+	message: string;
+	onRetry: () => void;
+}) {
+	return (
+		<div className="flex min-h-52 flex-col items-center justify-center gap-4 rounded-2xl bg-muted/30 text-center">
+			<p className="text-sm text-destructive">{message}</p>
+			<Button variant="secondary" onClick={onRetry}>
+				重新加载
+			</Button>
+		</div>
+	);
 }
